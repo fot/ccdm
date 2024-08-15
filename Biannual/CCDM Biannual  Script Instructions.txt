@@ -1,0 +1,45 @@
+Hello!
+
+Instructions on how to run the "CCDM Biannual.py" script to generate the CCDM Biannual plots / data files.
+
+Method One (Direct ssh via Windows or Mac terminal):
+- Using windows terminal (or Mac terminal), ssh into chimchim (ssh user@131.142.113.13)
+- "cd" to the following directory.
+   - cd /home/rhoover/python/Biannual/
+- Activate ska3flight environment
+   - ska3flight
+- Run "CCDM Biannual.py" script
+   - python "CCDM Biannual.py"
+- Follow script instructions via terminal window.
+
+Notes:
+- Script will generate new biannual directory within "\\noodle\FOT\engineering\ccdm\Current_CCDM_Files\Quarterly Report" based on your input.
+- Script execution takes around 50 min (it pulls lots of data)
+- Output directory populated with csv, png, and html file(s) to be used in CCDM biannual report.
+_______________________________________________________________________________________________________________
+
+Method Two (VSCode or PyCharm):
+- Using VSCode or PyCharm, open an SSH session on chimchim (user@131.142.133.13)
+   - I used VSCode, to use this you must install the "remote-ssh" extension.
+- Open the base directory on chimchim (/)
+   - Must be the base directory or VSCode cannot see both the script file and the python interperter.
+- Set python interpreter for coding app
+   - /proj/sot/ska3/flight/bin/python
+   - Choose python3.10+
+- Open terminal within coding app and activate ska3flight environment (ska3flight)
+   - Must still activate ska3fligth to acess the engineering data archive.
+- Open script within coding app
+   - /home/rhoover/python/Biannual/"CCDM Biannual.py"
+- Execute script within coding app.
+    - In VSCode this is "F5" on your keyboard.
+- Follow script instructions via coding app terminal window.
+
+Notes:
+- Script will generate new biannual directory within "\\noodle\FOT\engineering\ccdm\Current_CCDM_Files\Quarterly Report" based on your input.
+- Script execution takes around 50 min (it pulls lots of data)
+- Output directory populated with csv, png, and html file(s) to be used in CCDM biannual report.
+_______________________________________________________________________________________________________________
+
+
+Script "Nice To Have" features:
+1) Script currently cannot generate "mission_mins.csv", "mission_mins.csv", or "mission_maxes.csv" files, user must move these manually.

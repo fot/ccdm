@@ -1,0 +1,21 @@
+CCDM Biannual Instructions
+------------------------------
+
+1) Run the "CCDM Biannual.py" script to generate all ska engineering data plots / files.
+   - Instructions in "CCDM Biannual Script Instructions.txt" file.
+
+2) DSN Data ss auto pulled from directories and outputted in the \Output\ directory - 
+   - DSN Usage Data: \\Noodle\fot\reports_and_schedules\reports\joan_cusato_input (not auto pulled, reports to big and not standardized to auto pull data)
+
+3) Remove output powever vs Temp.  Trend is non-existent
+
+
+---------------------------------------------------
+Other Notes--
+1) Go back to SSR-A Prime with occaisonal checkout of SSR-B?
+2) SSR reporting improvement: go to BEAT database instead of short reports.
+3) SSR Toute around concept : \\noodle\FOT\engineering\ccdm\Tools\SSR_INFO\SSR_SubmoduleReconfig.pptx
+
+Ryan Contact Info:
+484-336-4167
+rhoover@ipa.cfa.harvard.edu
