@@ -22,66 +22,12 @@ class UserVars:
     Description: Gather use inputs
     """
     def __init__(self):
-        while True:
-            system("cls")
-            self.start_year = get_start_year()
-            self.start_doy = get_doy_start()
-            self.end_year = get_end_year()
-            self.end_doy = get_end_doy()
-            self.start_date = doy_to_date(self.start_year, self.start_doy)
-            self.end_date = doy_to_date(self.end_year, self.end_doy)
-            input_status = input("\nAre these inputs correct? Y/N: ")
-
-            if input_status in ("Y","y","Yes","yes"):
-                break
-
-            print("\nRestarting Inputs...\n\n")
-            time.sleep(1.5)
-
-def get_start_year():
-    "Get user input for start year"
-    while True:
-        year_input = input("Enter the START year: XXXX ")
-        if (len(str(year_input)) == 4) and (1998 <= int(year_input) <= 2040):
-            break
-        print(f"{year_input} was an invalid input, please try again")
-    return year_input
-
-def get_doy_start():
-    "Get user in put for DOY start"
-    while True:
-        doy_input = input("Enter the START day: XXX ")
-        if (len(str(doy_input)) == 3) and (1 <= int(doy_input) <= 366):
-            break
-        print(f"{doy_input} was an invalid input, please try again")
-    return doy_input
-
-def get_end_year():
-    "Get user input for end year"
-    while True:
-        year_input = input("Enter the END year: XXXX ")
-        if (len(str(year_input)) == 4) and (1998 <= int(year_input) <= 2040):
-            break
-        print(f"{year_input} was an invalid input, please try again")
-    return year_input
-
-def get_end_doy():
-    "Get user input for DOY end"
-    while True:
-        doy_input = input("Enter the END day: XXX ")
-        if (len(str(doy_input)) == 3) and (1 <= int(doy_input) <= 366):
-            break
-        print(f"{doy_input} was an invalid input, please try again\n")
-    return doy_input
-
-def doy_to_date(input_year, input_doy):
-    """
-    Description: Corrects data format acceptable to url query
-    Input: User Variables with Year start/end & DOY start/end
-    Output: String of formated date in format yyyy-MM-dd
-    """
-    time_object = datetime.datetime.strptime(f"{input_year} {input_doy}", "%Y %j")
-    return time_object
+        self.start_date = datetime.datetime.now() - datetime.timedelta(14)
+        self.end_date = datetime.datetime.now()
+        self.start_doy = self.start_date.timetuple().tm_yday
+        self.start_year = self.start_date.year
+        self.end_doy = self.end_date.timetuple().tm_yday
+        self.end_year = self.end_date.year
 
 
 def data_query(user_vars, dataset):
@@ -112,12 +58,10 @@ def write_html_file(user_vars, figure):
     print(" - Generating html output file.....")
 
     figure_title = (
-        "Space Weather Data (GOES Spacecraft) " +
-        f"({user_vars.start_year}{user_vars.start_doy}_{user_vars.end_year}{user_vars.end_doy})"
+        "GOES Space Weather Plot (14-Day Lookback)"
     )
 
-    output_dir = ("//noodle/GRETA/rhoover/python/Code/Chandra_CCDM/"
-                  "GOES Spacecraft Space Weather Plotter/Output")
+    output_dir = "/home/rhoover/python/Code/ccdm/GOES Spacecraft Space Weather Plotter/Output"
     create_dir(output_dir)
     figure.write_html(f"{output_dir}/{figure_title}.html")
     print(f""" - Done! Data written to "{output_dir}{figure_title}.html" in output directory.""")
@@ -216,101 +160,6 @@ def check_data_validity(data):
     if data >= 0:
         return data
     return 0
-
-
-def parse_beat_report(fname):
-    """
-    Description: Parse beat reports
-    """
-    ret_dict = {"A": [],"B": []}
-    cur_state = 'FIND_SSR'
-    with open(fname, 'r', encoding="utf-8") as beat_report:
-        for line in beat_report:
-            if line[0:10] ==  'Dump start': # Get DOY
-                parsed = line.split()
-                fulldate = parsed[3].split()
-                doy = datetime.datetime.strptime(f"{fulldate[0][:-3]}", "%Y%j.%H%M%S")
-            if cur_state == 'FIND_SSR':
-                if line[0:5] == 'SSR =':
-                    cur_ssr = line[6] # Character 'A' or 'B'
-                    cur_state = 'FIND_SUBMOD'
-            elif cur_state == 'FIND_SUBMOD':
-                if line[0:7] =='SubMod ':
-                    cur_state = 'REC_SUBMOD'
-            elif cur_state == 'REC_SUBMOD':
-                if line[0].isdigit():
-                    parsed = line.split()
-                    ret_dict[cur_ssr].append({int(parsed[0]): int(parsed[3])})
-                else:
-                    cur_state = 'FIND_SSR'
-    return doy, ret_dict
-
-
-def get_beat_report_dirs(user_vars):
-    "Generate list of beat report files"
-    print("     - Building SSR beat report directory list...")
-    start_date = datetime.datetime.strptime(
-        f"{user_vars.start_year}:{user_vars.start_doy}:000000","%Y:%j:%H%M%S"
-        )
-    end_date = datetime.datetime.strptime(
-        f"{user_vars.end_year}:{user_vars.end_doy}:235959","%Y:%j:%H%M%S"
-        )
-    root_folder = (
-        "//noodle/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/SSR_Short_Reports/"
-        )
-    full_file_list, file_list = ([] for i in range(2))
-
-    for year_diff in range((end_date.year-start_date.year) + 1):
-        year = start_date.year + year_diff
-        dir_path = Path(root_folder + "/" + str(year))
-        full_file_list_path = list(x for x in dir_path.rglob('BEAT*.*'))
-
-        for list_item in full_file_list_path:
-            full_file_list.append(str(list_item))
-
-    for day in range((end_date-start_date).days + 1):
-        cur_day = start_date + datetime.timedelta(days=day)
-        cur_year_str = cur_day.year
-        cur_day_str = cur_day.strftime("%j")
-
-        for list_item in full_file_list:
-            if f"BEAT-{cur_year_str}{cur_day_str}" in list_item:
-                file_list.append(list_item)
-
-    return file_list
-
-
-def get_ssr_beat_reports(user_vars,data):
-    "Parse SSR beat reports into data"
-    print("   - Parsing SSR beat report data...")
-    doy_dict_a, doy_dict_b = ({} for i in range(2))
-    file_list = get_beat_report_dirs(user_vars)
-
-    for beat_report in file_list:
-        try:
-            doy, submod_dbe = parse_beat_report(beat_report)
-        except BaseException:
-            print(f"""     - Error parsing file "{beat_report[-34:]}"! Skipping file...""")
-        dbe_total_a, dbe_total_b = ([] for i in range(2))
-
-        for data_a in submod_dbe["A"]:
-            dbe_total_a += list(data_a.values())
-        for data_b in submod_dbe["B"]:
-            dbe_total_b += list(data_b.values())
-
-        if sum(dbe_total_a) != 0: # Only record dates with DBEs
-            doy_dict_a[f"{doy}"] = sum(dbe_total_a)
-        else: # If no DBE on date, record zero for that day.
-            doy_dict_a[f"{doy}"] = 0
-
-        if sum(dbe_total_b) != 0:
-            doy_dict_b[f"{doy}"] = sum(dbe_total_b)
-        else:
-            doy_dict_b[f"{doy}"] = 0
-
-    # Record data to data object
-    data.doy_dict_a = doy_dict_a
-    data.doy_dict_b = doy_dict_b
 
 
 def add_electron_flux_data(figure, data, formatted_times, row):
@@ -448,25 +297,6 @@ def add_kp_data(user_vars, figure, row):
     add_plot_trace(figure, formatted_times, kp_value, "Kp Value", row, True)
 
 
-def add_dbe_data(user_vars, figure, row):
-    """
-    Description: Add dbe error data to plot
-    Input: Data Object, figure
-    Output: None
-    """
-    print(" - Adding DBE Data...")
-    data = DataObject()
-    get_ssr_beat_reports(user_vars, data)
-    ssra_x_data = list(data.doy_dict_a.keys())
-    ssra_y_data = list(data.doy_dict_a.values())
-    ssrb_x_data = list(data.doy_dict_b.keys())
-    ssrb_y_data = list(data.doy_dict_b.values())
-
-    print("   - Adding data to plot traces...")
-    add_plot_trace(figure, ssra_x_data, ssra_y_data, "SSR-A DBEs", row)
-    add_plot_trace(figure, ssrb_x_data, ssrb_y_data, "SSR-B DBEs", row)
-
-
 def add_solar_spots_data(user_vars, figure, row):
     """
     Working On It
@@ -532,8 +362,7 @@ def generate_plot(user_vars):
         3: ["Proton Flux</br></br>(p+/cm^2-s-sr)", "1 Mev"],
         5: ["Xray Flux</br></br>(W/m^2)"],
         7: ["Magnetometer</br></br>(nT)"],
-        9: ["Kp Value", "# of Sunspots"],
-        11: ["Recorded DBEs"],
+        # 9: ["Kp Value", "# of Sunspots"],
         }
 
     figure = subplots.make_subplots(
@@ -545,9 +374,8 @@ def generate_plot(user_vars):
     add_particle_flux_data(user_vars, figure, 1, 2)
     add_xray_flux_data(user_vars, figure, 3)
     add_magnetometer_data(user_vars, figure, 4)
-    add_solar_spots_data(user_vars, figure, 5)
-    add_kp_data(user_vars, figure, 5)
-    add_dbe_data(user_vars, figure, 6)
+    # add_solar_spots_data(user_vars, figure, 5)
+    # add_kp_data(user_vars, figure, 5)
     format_plot_axes(user_vars, figure, yaxis_titles)
     return figure
 

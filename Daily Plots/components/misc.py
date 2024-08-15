@@ -17,24 +17,26 @@ def format_doy(doy_no_format):
 
 def make_output_dir(user_vars, auto_gen = False):
     "Generates the output directory"
-    if auto_gen:
-        set_dir = "/home/rhoover/python/General Trending/Daily Plots/Output/Auto-Gen/"
-    else:
-        base_dir = "/home/rhoover/python/General Trending/Daily Plots/Output/"
+    base_dir = "/home/rhoover/python/Code/ccdm/Daily Plots"
 
+    if auto_gen:
+        set_dir = f"{base_dir}/Output/Auto-Gen/"
+    else:
         if (user_vars.year_start == user_vars.year_end and
             user_vars.doy_start == user_vars.doy_end
             ):
-            set_dir = base_dir + f"{user_vars.year_start}{user_vars.doy_start}/"
+            set_dir = f"{base_dir}/Output/{user_vars.year_start}{user_vars.doy_start}"
         else:
             set_dir = (
-                base_dir + f"{user_vars.year_start}{user_vars.doy_start}_"
-                f"{user_vars.year_end}{user_vars.doy_end}/"
+                f"{base_dir}/Output/{user_vars.year_start}{user_vars.doy_start}_"
+                f"{user_vars.year_end}{user_vars.doy_end}"
             )
+
     try:
-        os.mkdir(set_dir)
-    except BaseException:
+        os.makedirs(set_dir)
+    except FileExistsError:
         pass
+
     return set_dir
 
 
@@ -42,7 +44,7 @@ def write_html_file(user_vars, figure, figure_title, auto_gen = False):
     "Write HTML output file after figure generation"
     print(" - Generating html output file.....")
     set_dir = make_output_dir(user_vars, auto_gen)
-    figure.write_html(set_dir + f"{figure_title}" + ".html")
+    figure.write_html(f"{set_dir}/{figure_title}.html")
     print(f""" - Done! Data written to "{figure_title}""" + f""".html" in "{set_dir}".""")
 
 

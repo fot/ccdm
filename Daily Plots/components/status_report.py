@@ -19,10 +19,10 @@ def generate_status_report(user_vars, auto_gen = False):
     else:
         file_title = (
             f"CCDM Status Report ({user_vars.year_start}{user_vars.doy_start}_"
-            f"{user_vars.year_end}{user_vars.doy_end}).txt"
+            f"{user_vars.year_end}{user_vars.doy_end})"
         )
 
-    with open(set_dir + file_title, "w+", encoding = "utf-8") as file:
+    with open(f"{set_dir}/{file_title}.txt", "w+", encoding = "utf-8") as file:
         tlm_corruption_detection(user_vars, file)
         obc_error_detection(user_vars, file)
         limit_violation_detection(user_vars, file)
