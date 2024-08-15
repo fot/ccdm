@@ -10,6 +10,6 @@ def create_dir(input_dir):
     Output: None
     """
     try:
-        os.mkdir(input_dir)
+        os.makedirs(input_dir)
     except FileExistsError:
         pass
