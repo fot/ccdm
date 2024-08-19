@@ -52,8 +52,6 @@ def get_ssr_rollover_data(user_vars):
 def add_ssr_rollovers(user_vars, rollover_data):
     "Add SSR rollover data to config_section string"
     return_string = ""
-    zip_data = zip(rollover_data["Prime to Backup"],
-                rollover_data["Backup to Prime"])
 
     if user_vars.ssr_prime[0] == "A":
         backup = "B"
@@ -61,6 +59,8 @@ def add_ssr_rollovers(user_vars, rollover_data):
         backup = "A"
 
     if rollover_data:
+        zip_data = zip(rollover_data["Prime to Backup"],
+                       rollover_data["Backup to Prime"])
 
         for prime_to_backup, backup_to_prime in zip_data:
             rollover_date = prime_to_backup.strftime("%Y:%j:%H:%M:%S.%f")
