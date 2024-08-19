@@ -17,7 +17,7 @@ def get_ssr_rollover_data(user_vars):
         prime, backup = "B", "A"
 
     print(f"Looking for when SSR-{backup} was active while SSR-{prime} was prime...")
-    ssr_data = ska_data(user_vars.ts, user_vars.tp, f"COS{prime}RCEN")
+    ssr_data = ska_data(user_vars.ts, user_vars.tp, f"COS{prime}RCEN", True)
     ssr_times, ssr_values = ssr_data.times, ssr_data.vals
     ssr_not_recording_doy = []
     ssr_not_recording_datetimes = {}
@@ -47,7 +47,7 @@ def get_ssr_rollover_data(user_vars):
             pass
 
     # Pull out DOYs backup SSR was active & remove many duplicate entries
-    for rollover_type, date_list in ssr_not_recording_datetimes.items():
+    for date_list in ssr_not_recording_datetimes.values():
         for date in date_list:
             doy_item = date.strftime("%j")
 
@@ -82,7 +82,7 @@ def write_ssr_data(file, user_vars, ssr_not_recording_doy, ssr_not_recording_dat
 
 def get_dsn_data(user_vars):
     "Get DSN data from DSN excel files."
-    print("Get DSN Data...")
+    print("\nGet DSN Data from Marshall Monthly Files...")
     data_dict = {}
     total_time, total_contacts = 0, 0
     months = []
@@ -134,7 +134,7 @@ def write_dsn_data(file, dsn_data):
 
 def get_ssr_b_on_mean(user_vars):
     "Get the mean value for MSID CSSR2CBV for the biannaual period when SSR-B ON"
-    print("Finding the mean value of CSSR2CBV for the biannaul period...")
+    print("\nFinding the mean value of CSSR2CBV for the biannaul period...")
     data = ska_data(user_vars.ts, user_vars.tp, "CSSR2CBV", True)
     values = data.vals
     sum_of_values, counter = 0, 0
