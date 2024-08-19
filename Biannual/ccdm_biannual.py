@@ -845,16 +845,16 @@ def generate_ska_plots(user_vars, data):
 def main():
     "Main execution"
     user_vars = UserVariables()
-    # ssr_data = Data()
-    # ska_data = Data()
+    ssr_data = Data()
+    ska_data = Data()
     display_user_instructions(user_vars)
-    # generate_ska_plots(user_vars, ska_data)
-    # generate_ssr_plots(user_vars, ssr_data)
-    # generate_pa_bpt_plots(user_vars)
-    # if user_vars.prime_ssr == "A":
-    #     build_sbe_mod104_avg_plot(user_vars)
-    # build_sbe_vs_dbe_solar_date_plot(user_vars)
-    # build_sbe_vs_dbe_submod_plot(user_vars)
+    generate_ska_plots(user_vars, ska_data)
+    generate_ssr_plots(user_vars, ssr_data)
+    generate_pa_bpt_plots(user_vars)
+    if user_vars.prime_ssr == "A":
+        build_sbe_mod104_avg_plot(user_vars)
+    build_sbe_vs_dbe_solar_date_plot(user_vars)
+    build_sbe_vs_dbe_submod_plot(user_vars)
     build_query_data_file(user_vars)
 
 
