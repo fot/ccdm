@@ -106,7 +106,7 @@ def get_dsn_data(user_vars):
             raw_time += data_per_month["Totals"][f"{cell}"].value
 
         per_month = {"34m month total": (raw_time.days*24 + raw_time.seconds/3600),
-                    "34m contacts": data_per_month["Totals"]["B3"].value}
+                     "34m contacts": data_per_month["Totals"]["B3"].value}
         data_dict.setdefault(f"{month}",per_month)
 
         # Running total of all
