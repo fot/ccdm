@@ -16,6 +16,8 @@ from plotly.subplots import make_subplots
 from Chandra.Time import DateTime
 from tqdm import tqdm
 from cxotime import CxoTime
+from components.misc import write_html_file, write_csv_file, write_png_file, parse_csv_file
+from components.pa_bpt_plots import generate_pa_bpt_plots
 from components.average_sbe_submod104_plot import build_sbe_mod104_avg_plot
 from components.sbe_vs_dbe_solar_per_date_plot import build_sbe_vs_dbe_solar_date_plot
 from components.dbe_seu_by_submod_plot import build_sbe_vs_dbe_submod_plot
@@ -243,32 +245,6 @@ def parse_beat_report(beat_report):
                 else:
                     cur_state = "FIND_SSR"
     return doy,ret_dict
-
-
-def write_png_file(user_vars,figure,file_name):
-    "Writes a figure to a png file"
-    figure.write_image(user_vars.set_dir + "/Output/" + file_name)
-
-
-def write_csv_file(user_vars,data,file_name):
-    "Writes data to csv file"
-    print(f"""  - Writing data to "{file_name}" in {user_vars.set_dir}...""")
-    data.to_csv(user_vars.set_dir + "/Output/" + file_name)
-
-
-def write_html_file(user_vars,figure,file_name):
-    "Writes a figure into an HTML file"
-    print(f"""  - Writing data to "{file_name}" in {user_vars.set_dir}...""")
-    figure.write_html(user_vars.set_dir + "/Output/" + file_name)
-
-
-def parse_csv_file(csv_file,as_dict=False):
-    "Read given .csv file and return data"
-    print(f"""  - Parsing file "{csv_file}"...""")
-    data = pd.read_csv(csv_file)
-    if as_dict:
-        data.to_dict()
-    return data
 
 
 def get_quartely_sum_stats(data):
@@ -819,7 +795,6 @@ def generate_appendix_figure(user_vars,df_means,df_mins,df_maxes,mission=False):
 
 def generate_mission_appendix_plots(user_vars):
     "Generate mission appendix plots from csv file data."
-
     print(" - Generating Mission Appendix Plots...")
     df_means = parse_csv_file(user_vars.set_dir + "/Output/" + "full_mission_means.csv")
     df_mins  = parse_csv_file(user_vars.set_dir + "/Output/" + "full_mission_mins.csv")
@@ -829,7 +804,6 @@ def generate_mission_appendix_plots(user_vars):
 
 def generate_period_appendix_plots(user_vars):
     "Generate period appendix plots from csv file data."
-
     print(" - Generating Period Appendix Plots...")
     df_means = parse_csv_file(user_vars.set_dir + "/Output/" + "period_means.csv")
     df_mins  = parse_csv_file(user_vars.set_dir + "/Output/" + "period_mins.csv")
@@ -866,56 +840,6 @@ def generate_ska_plots(user_vars, data):
     generate_full_mission_tables(user_vars)
     generate_mission_appendix_plots(user_vars)
     generate_period_appendix_plots(user_vars)
-
-
-def generate_pa_bpt_plots(user_vars):
-    "Generate Power Amp versus Baseplate temp plot."
-
-    print("Generating PA vs. BPT Plot...")
-
-    # df_mins = parse_csv_file(user_vars.set_dir + "///Output/" + "period_mins.csv")
-    df_means = parse_csv_file(user_vars.set_dir + "/Output/" + "period_means.csv")
-    # df_maxes = parse_csv_file(user_vars.set_dir + "///Output/" + "period_maxes.csv")
-    # days = df_means['Mission Day']
-
-    txapwr = df_means.loc[:,'CTXAPWR']
-    txbpwr = df_means.loc[:,'CTXBPWR']
-
-    cpa1bpt = df_means.loc[:,'CPA1BPT']
-    cpa2bpt = df_means.loc[:,'CPA2BPT']
-
-    figure = go.Figure()
-    figure.add_trace(
-        go.Scatter(
-            x=cpa1bpt, y=txapwr, name="TX-A Power vs. PA Baseplate Temp",
-            mode="markers",marker={"size":12},line={"color":"blue", "width":3}
-            )
-        )
-    figure.add_trace(
-        go.Scatter(
-            x=cpa2bpt, y=txbpwr, name="TX-B Power vs. PA Baseplate Temp",
-            mode="markers",marker={"size":12},line={"color":"orange", "width":3}
-            )
-        )
-
-    figure.update_layout(
-            title="Daily Mean Tx Output Power vs. Daily Mean Base Plate Temperature",
-            xaxis_title="Baseplate Temperature (degF)",
-            yaxis_title="Tx Output Power (dBm)",
-            autosize=True,
-            legend={
-                "yanchor":"top",
-                "y":0.99,
-                "xanchor":"left",
-                "x":0.01
-                },
-            font={
-                "family":"Courier New, monospace",
-                "size":18,
-                "color":"RebeccaPurple"
-                }
-            )
-    write_html_file(user_vars,figure,f"{user_vars.end_year}b_TX_BPT.html")
 
 
 def main():
