@@ -335,7 +335,7 @@ def CreateTable(ssr_sel,ac_bias):
     return fig
 
 
-def DrawBias(cur_time,ssr_sel,hrs_prev,pben_val,pb,pb_time,bcw_list, ac_bias):
+def DrawBias(cur_time,ssr_sel,hrs_prev,pben_val,pb,pb_time,bcw_list,ac_bias,base_dir):
     "Working on it"
     td = timedelta(seconds=3600*24)  #seconds.  Enough time to cover major frame
     cur_ts = cur_time-td
@@ -551,7 +551,7 @@ def DrawBias(cur_time,ssr_sel,hrs_prev,pben_val,pb,pb_time,bcw_list, ac_bias):
     #fig.write_html('ACBIAS_example.html', auto_open=False)
     #fig.write_html('ACBIAS_example2.html', auto_open=False,include_plotlyjs='directory')
     try:
-        fig.write_html("/home/rhoover/python/Code/ccdm/AC Bias/Output/ACBIAS_example.html",include_plotlyjs = "directory", auto_open = False)
+        fig.write_html(f"{base_dir}/ACBIAS_example.html",include_plotlyjs = "directory", auto_open = False)
     except Exception  as error:
         print(f"NETWORK WRITE ERROR ({error})")
     return ac_sort, fig
@@ -560,7 +560,7 @@ def DrawBias(cur_time,ssr_sel,hrs_prev,pben_val,pb,pb_time,bcw_list, ac_bias):
 def main(cur_time, ts):
     "Working on it"
     [selected_SSR, _] = getLastPB(ts,cur_time)
-    base_dir = "/home/rhoover/python/Code/ccdm/AC Bias/Output"
+    base_dir = "/share/FOT/engineering/ccdm/Tools/AC_BIAS/Output"
     ssr_sel = selected_SSR
     hrs_prev = 24 # Window to look back over
     # initialization
@@ -624,7 +624,7 @@ def main(cur_time, ts):
         else:
             M1966_val = M1966_old
         # Now Draw the chart
-        ac_sort, ac_fig = DrawBias(cur_time, ssr_sel, hrs_prev, pben_val, pb, pb_time, bcw_list, ac_bias)
+        ac_sort, ac_fig = DrawBias(cur_time,ssr_sel,hrs_prev,pben_val,pb,pb_time,bcw_list,ac_bias,base_dir)
         if (pben_val == 0) & (pben_old == 1): # playback ended reset, the bcw list (and eventually output)
             ac_fig.update_layout(autosize=False,width=2000,height=1000)
             try:
