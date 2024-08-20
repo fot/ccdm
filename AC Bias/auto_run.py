@@ -11,7 +11,6 @@ from selenium import webdriver
 def ssh_session():
     "Open an ssh session, then execute command to start script"
 
-    os.system("cls")
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy()) # this will automatically add the keys
     attempt = 1
@@ -58,4 +57,11 @@ def auto_open():
         print("Ending tool execution...")
 
 
-ssh_session()
+def main():
+    "Main Execution"
+    os.system("cls")
+    print("---Welcome to the AC_BIAS_HIT_PERSISTENT Plotter Tool---")
+    ssh_session()
+
+
+main()
