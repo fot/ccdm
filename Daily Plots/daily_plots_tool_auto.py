@@ -25,7 +25,7 @@ class UserVariables:
         self.doy_end = str(self.end_date.timetuple().tm_yday)
         self.ts = CxoTime(self.year_start+":"+self.doy_start+":00:00:00")
         self.tp = CxoTime(self.year_end+":"+self.doy_end+":23:59:59.999")
-        self.data_source = "SKA Abreviated"
+        self.data_source = "SKA High Rate"
 
 
 def main():

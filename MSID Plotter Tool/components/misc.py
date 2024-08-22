@@ -35,7 +35,7 @@ def generate_html_output(user_vars,plot):
     "Takes plot object and write to an HTML file in output directory."
 
     print("\nGenerating html output file.....")
-    set_dir = "/home/rhoover/python/Code/ccdm/MSID Plotter Tool/"
+    set_dir = "/share/FOT/engineering/ccdm/Tools/MSID Plotter/"
     create_dir(f"{set_dir}/Output")
     plot.write_html(f"{set_dir}/Output/{user_vars.file_title}")
     print(f""" - Done! Data written to "{user_vars.file_title}" in output directory.""")
