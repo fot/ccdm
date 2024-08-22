@@ -65,7 +65,7 @@ class UserVariables:
 
     def get_dir_path(self):
         "User input for set directory"
-        self.set_dir = "/home/rhoover/python/Code/ccdm/Weekly"
+        self.set_dir = "/share/FOT/engineering/ccdm/Tools/Weekly"
         print(f"Set directory is: {self.set_dir}")
 
     def get_ssr_prime(self):

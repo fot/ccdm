@@ -17,7 +17,7 @@ def format_doy(doy_no_format):
 
 def make_output_dir(user_vars, auto_gen = False):
     "Generates the output directory"
-    base_dir = "/home/rhoover/python/Code/ccdm/Daily Plots"
+    base_dir = "/share/FOT/engineering/ccdm/Tools/Daily Plots"
 
     if auto_gen:
         set_dir = f"{base_dir}/Output/Auto-Gen/"
