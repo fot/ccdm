@@ -1,7 +1,7 @@
 ----Welcome to the AC Bias HIT Persistent Plotter Tool----
 
 Use Instructions
-1) On a WINDOWS machine run the "auto_run.exe" file.
+1) On a WINDOWS machine run the "SSR Dump Analysis Tool.exe" file.
     - exe file launches an ssh session into chimchim to start the script "ac_bias_hit_persistent.py"
     - exe file handles cleanup of launched item on chimchim
 
@@ -12,10 +12,7 @@ Use Instructions
     - Closing the generated window without entering "ctrl + c" will leave the ssh session script running.
 
 
-
-
 Any questions reach out to:
-
 Ryan Hoover (CCDM)
 484-336-4167
 rhoover@ipa.cfa.harvard.edu
