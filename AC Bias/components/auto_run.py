@@ -34,11 +34,12 @@ def ssh_session():
             sys.exit("Too many failed attempts")
 
     print("""  - Starting "AC_BIAS_HIT_PERSISTANT.py" Tool...""")
-    stdin, stdout, stderr = ssh.exec_command('/proj/sot/ska3/flight/bin/python '
-                                            '/home/rhoover/python/Code/ccdm/AC\ Bias/components/'
-                                            '"ac_bias_hit_persistent.py"')
+    ssh.exec_command('/proj/sot/ska3/flight/bin/python /home/rhoover/python/Code/ccdm/'
+                     'AC\ Bias/components/"ac_bias_hit_persistent.py"')
+    pid = get_pid()
     auto_open()
-    ssh.exec_command(f"pkill -u {username}")
+    print(f"  - Killing PID: {pid} on ssh session.")
+    ssh.exec_command(f"kill {pid}")
 
 
 def auto_open():
@@ -55,6 +56,26 @@ def auto_open():
             print("""Tool is running... (Enter "ctrl + c" to exit tool)""")
     except KeyboardInterrupt:
         print("Ending tool execution...")
+
+
+def get_pid():
+    "Get the PID of the script started on the ssh session"
+    base_dir = "//noodle/GRETA/rhoover/python/Code/ccdm/AC Bias/components"
+
+    while True:
+        try:
+            time.sleep(3) # Allow script startup time
+            with open(f"{base_dir}/pid.txt", "r", encoding = "utf-8") as file:
+                for line in file:
+                    pid = str(line)
+                break
+        except FileNotFoundError:
+            print("  - Error! PID not found yet, trying again in 1 sec...")
+            time.sleep(1)
+
+    os.remove(f"{base_dir}/pid.txt")
+    print(f"  - PID: {pid} started on ssh session.")
+    return pid
 
 
 def main():

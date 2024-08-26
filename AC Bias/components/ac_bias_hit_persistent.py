@@ -557,8 +557,19 @@ def DrawBias(cur_time,ssr_sel,hrs_prev,pben_val,pb,pb_time,bcw_list,ac_bias,base
     return ac_sort, fig
 
 
+def get_pid():
+    "get the PID id for this script when its ran, then save it to a txt file"
+    print("entered get_pid")
+    pid = os.getpid()
+    base_dir = "/home/rhoover/python/Code/ccdm/AC Bias/components"
+
+    with open(f"{base_dir}/pid.txt", "w", encoding="utf-8") as file:
+        file.write(f"{pid}")
+
+
 def main(cur_time, ts):
     "Working on it"
+    get_pid()
     [selected_SSR, _] = getLastPB(ts,cur_time)
     base_dir = "/share/FOT/engineering/ccdm/Tools/AC_BIAS/Output"
     ssr_sel = selected_SSR
@@ -575,7 +586,7 @@ def main(cur_time, ts):
     cur_time.format = 'yday'
     td = timedelta(seconds=3600*24)  #seconds.  Enough time to cover major frame
     cur_ts = cur_time-td
-    cur_time_old = cur_time-timedelta(seconds=60)
+    # cur_time_old = cur_time-timedelta(seconds=60)
     print(cur_ts)
     print(cur_time)
     #pbpt = MAUDERequest(cur_ts,cur_time,'COS'+ssr_sel+'PBPT')
@@ -656,14 +667,14 @@ def format_dates(cheta_dates):
 addr_max  = 134217696 # calculated or from GRETA Script?
 
 t = datetime.now(timezone.utc)   # Get UTC Timezone value of current time
-cur_time  = CxoTime(t) 
+cur_time  = CxoTime(t)
 
 hrs_prev = 48 # Window to look back over
 t_win_start = timedelta(seconds=hrs_prev*3600)
-t_win_stop = timedelta(seconds=2*3600) 
+t_win_stop = timedelta(seconds=2*3600)
 tp = cur_time - t_win_stop # ignore playbacks ended in the last 2 hours, since these may be replays due to bad codewords
 tp.format = 'yday'
-ts = cur_time - t_win_start 
+ts = cur_time - t_win_start
 ts.format = 'yday'
 print(str(ts))
 print(str(tp))
