@@ -546,7 +546,7 @@ def DrawBias(cur_time,ssr_sel,hrs_prev,pben_val,pb,pb_time,bcw_list,ac_bias,base
         polar = dict(
             radialaxis = dict(showticklabels=False, ticks=''),
             angularaxis = dict(showticklabels=False, tickmode='array', tickvals=tickvals,ticktext=tickrange_str,direction='clockwise')
-        )    
+        )
     )
     #fig.write_html('ACBIAS_example.html', auto_open=False)
     #fig.write_html('ACBIAS_example2.html', auto_open=False,include_plotlyjs='directory')
@@ -559,12 +559,12 @@ def DrawBias(cur_time,ssr_sel,hrs_prev,pben_val,pb,pb_time,bcw_list,ac_bias,base
 
 def get_pid():
     "get the PID id for this script when its ran, then save it to a txt file"
-    print("entered get_pid")
     pid = os.getpid()
-    base_dir = "/home/rhoover/python/Code/ccdm/AC Bias/components"
+    base_dir = "/share/FOT/engineering/ccdm/Tools/AC_BIAS/Output"
 
     with open(f"{base_dir}/pid.txt", "w", encoding="utf-8") as file:
         file.write(f"{pid}")
+        file.close()
 
 
 def main(cur_time, ts):
