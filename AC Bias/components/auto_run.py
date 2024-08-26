@@ -60,7 +60,7 @@ def auto_open():
 
 def get_pid():
     "Get the PID of the script started on the ssh session"
-    base_dir = "//noodle/GRETA/rhoover/python/Code/ccdm/AC Bias/components"
+    base_dir = "//noodle/FOT/engineering/ccdm/Tools/AC_BIAS/Output"
 
     while True:
         try:
