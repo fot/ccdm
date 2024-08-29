@@ -15,10 +15,10 @@ class UserVariables():
         self.data_source = "High Rate SKA"
 
         # Realtime
-        self.tp = datetime.now() # End time
-        self.ts = self.tp - timedelta(seconds=10) # Start Time
+        self.ts = datetime.now() - timedelta(seconds=10)
+        self.tp = datetime.now()
 
-        # bad comm (1) (2024:198:11:00:00 thru 2024:198:12:06:00)
+        # # bad comm (1) (2024:198:11:00:00 thru 2024:198:12:06:00)
         # self.tp = datetime.strptime("2024:198:11:50:00", "%Y:%j:%H:%M:%S")
         # self.ts = self.tp - timedelta(seconds=10)
         # self.t_end = datetime.strptime("2024:198:12:06:00", "%Y:%j:%H:%M:%S")
@@ -156,7 +156,6 @@ def append_data_history(history_data, raw_data):
 
 def main():
     "Main Execution"
-    user_vars = UserVariables()
     print("VC0/VC1 Slip Detection")
     data_history = []
     url = "//noodle/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector/VC0_VC1_Slips_Detected.html"
@@ -164,6 +163,7 @@ def main():
 
     try:
         while True:
+            user_vars = UserVariables()
             print(f" - {user_vars.ts} (Enter ctrl + c to exit tool)")
             raw_data = data_request(user_vars, "M0190")
             data_history = append_data_history(data_history, raw_data)
@@ -178,9 +178,9 @@ def main():
                 print(" - Don't close the window. \U0001F440")
 
             # Crude shifting time window
-            user_vars.ts += timedelta(seconds=10)
-            user_vars.tp += timedelta(seconds=10)
-            time.sleep(10)
+            # user_vars.ts += timedelta(seconds=10)
+            # user_vars.tp += timedelta(seconds=10)
+            time.sleep(8)
 
     except KeyboardInterrupt:
         print("Ending Script!")
