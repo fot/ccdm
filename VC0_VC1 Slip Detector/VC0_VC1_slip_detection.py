@@ -12,7 +12,6 @@ class UserVariables():
     "Variables defined by the user!"
 
     def __init__(self):
-        self.data_source = "High Rate SKA"
 
         # Realtime
         self.ts = datetime.now() - timedelta(seconds=10)
@@ -21,22 +20,18 @@ class UserVariables():
         # # bad comm (1) (2024:198:11:00:00 thru 2024:198:12:06:00)
         # self.tp = datetime.strptime("2024:198:11:50:00", "%Y:%j:%H:%M:%S")
         # self.ts = self.tp - timedelta(seconds=10)
-        # self.t_end = datetime.strptime("2024:198:12:06:00", "%Y:%j:%H:%M:%S")
 
         # # bad comm (2) (2024:200:10:20:00 thru 2024:200:11:30:00)
         # self.tp = datetime.strptime("2024:200:10:20:00", "%Y:%j:%H:%M:%S")
         # self.ts = self.tp - timedelta(seconds=10)
-        # self.t_end = datetime.strptime("2024:200:11:30:00", "%Y:%j:%H:%M:%S")
 
         # # A good comm (1) (2024:199:00:05:00 thru 2024:199:02:00:00)
         # self.tp = datetime.strptime("2024:199:00:05:00", "%Y:%j:%H:%M:%S")
         # self.ts = self.tp - timedelta(seconds=10)
-        # self.t_end = datetime.strptime("2024:199:02:00:00", "%Y:%j:%H:%M:%S")
 
         # # A good comm (2) (2024:199:10:27:00 thru 2024:199:11:47:00)
         # self.tp = datetime.strptime("2024:199:10:27:00", "%Y:%j:%H:%M:%S")
         # self.ts = self.tp - timedelta(seconds=10)
-        # self.t_end = datetime.strptime("2024:199:11:47:00", "%Y:%j:%H:%M:%S")
 
 
 def data_request(user_vars, msid):
@@ -66,21 +61,22 @@ def vc0_vc1_slip_detection(raw_data):
     diff_list = []
 
     for index, (raw_value, raw_time) in enumerate(zip(values, times)):
-        if index > 1:
-            try:
-                corrected_time = datetime.strptime(str(raw_time), "%Y%j%H%M%S%f")
-                value = int(raw_value)
-                previous_value = int(values[index - 1])
-                diff = value-previous_value
+        corrected_time = datetime.strptime(str(raw_time), "%Y%j%H%M%S%f")
+        value = int(raw_value)
+        previous_value = int(values[index - 1])
+        diff = value-previous_value
 
+        if value != 0:
+            try:
                 if (
-                    (not value == previous_value) and 
+                    (value != previous_value) and
                     (diff > 5) and
                     (diff in range(56,61) or diff in range(95,100))
                 ):
                     diff_list.append([corrected_time, diff])
             except IndexError:
                 pass
+
     return diff_list
 
 
@@ -154,12 +150,24 @@ def append_data_history(history_data, raw_data):
     return history_data
 
 
+def cleanup(data_history):
+    base_dir = "//noodle/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector"
+    os.remove(f"{base_dir}/VC0_VC1_Slips_Detected.html")
+
+    # Dump data history in txt file
+    with open(f"{base_dir}/output.txt", "w", encoding = "utf-8") as file:
+        for item in data_history:
+            file.write(f"{item[0]}: {item[1]}\n")
+        file.close()
+
+
 def main():
     "Main Execution"
-    print("VC0/VC1 Slip Detection")
-    data_history = []
+    print("---VC0/VC1 Slip Detection Tool---")
     url = "//noodle/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector/VC0_VC1_Slips_Detected.html"
     driver = webdriver.Chrome()
+    data_history = []
+    # user_vars = UserVariables()
 
     try:
         while True:
@@ -177,14 +185,14 @@ def main():
                 driver.get(url)
                 print(" - Don't close the window. \U0001F440")
 
-            # Crude shifting time window
+            # # Crude shifting time window (for testig)
             # user_vars.ts += timedelta(seconds=10)
             # user_vars.tp += timedelta(seconds=10)
             time.sleep(8)
 
     except KeyboardInterrupt:
         print("Ending Script!")
+        cleanup(data_history)
 
 
 main()
-os.remove("//noodle/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector/VC0_VC1_Slips_Detected.html")
