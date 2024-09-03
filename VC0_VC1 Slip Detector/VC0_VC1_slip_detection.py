@@ -1,11 +1,13 @@
-from datetime import datetime, timedelta
+"VC0_VC1 Slip Detector Tool"
+
 import urllib
 import json
 import time
 import os
+from datetime import datetime, timedelta
 import plotly.graph_objects as go
-from selenium import webdriver
 import selenium
+from selenium import webdriver
 
 
 class UserVariables():
@@ -14,8 +16,7 @@ class UserVariables():
     def __init__(self):
 
         # Realtime
-        self.ts = datetime.now() - timedelta(seconds=10)
-        self.tp = datetime.now()
+        self.ts, self.tp = datetime.now()-timedelta(seconds=10), datetime.now()
 
         # # bad comm (1) (2024:198:11:00:00 thru 2024:198:12:06:00)
         # self.tp = datetime.strptime("2024:198:11:50:00", "%Y:%j:%H:%M:%S")
@@ -80,12 +81,24 @@ def vc0_vc1_slip_detection(raw_data):
     return diff_list
 
 
-def generate_plot(detected_slips, data_history):
-    "temp"
+def append_data_history(history_data, raw_data):
+    "Save data history while tool is running"
+    values = raw_data["data-fmt-1"]["values"]
+    times =  raw_data["data-fmt-1"]["times"]
+
+    for raw_time, value in zip(times, values):
+        corrected_time = datetime.strptime(str(raw_time), "%Y%j%H%M%S%f")
+        history_data.append([corrected_time, int(value)])
+
+    return history_data
+
+
+def generate_plot(detected_slips, data_history, base_dir):
+    "Generate static image of dataframe"
     x_values, y_values = ([] for i in range(2))
     plot = go.Figure()
 
-    # display when a slip is detected
+    # Slip Detected Plot
     if detected_slips:
         plot.add_annotation(
             text = "---VC0/VC1 Slip Detection---<br>      SLIP IS OCCURING",
@@ -129,70 +142,74 @@ def generate_plot(detected_slips, data_history):
             "size": 14,
             "color": "rgba(255,255,255,1)",
         },
-        plot_bgcolor="rgba(0,0,0,1)",
-        paper_bgcolor="rgba(0,0,0,1)",
-        autosize=True,
+        plot_bgcolor =  "rgba(0,0,0,1)",
+        paper_bgcolor = "rgba(0,0,0,1)",
+        width =  1920,
+        height = 1080,
     )
 
-    plot.write_html("//noodle/FOT/engineering/ccdm/Tools/"
-                    "VC0_VC1 Slip Detector/VC0_VC1_Slips_Detected.html")
+    plot.write_image(f"{base_dir}/VC0_VC1_Slips_Detected.png")
 
 
-def append_data_history(history_data, raw_data):
-    "asdfasdf"
-    values = raw_data["data-fmt-1"]["values"]
-    times =  raw_data["data-fmt-1"]["times"]
+def save_data(data_history, base_dir):
+    "Clean up things"
 
-    for raw_time, value in zip(times, values):
-        corrected_time = datetime.strptime(str(raw_time), "%Y%j%H%M%S%f")
-        history_data.append([corrected_time, int(value)])
-
-    return history_data
-
-
-def cleanup(data_history):
-    base_dir = "//noodle/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector"
-    os.remove(f"{base_dir}/VC0_VC1_Slips_Detected.html")
-
-    # Dump data history in txt file
     with open(f"{base_dir}/output.txt", "w", encoding = "utf-8") as file:
+        file.write("-----------Time-----------  |  --Value--\n")
         for item in data_history:
-            file.write(f"{item[0]}: {item[1]}\n")
+            file.write(f"{item[0]}  |   {item[1]}\n")
         file.close()
+
+
+def startup_cleanup(base_dir):
+    "Clean up lingering files from previous run"
+    try:
+        os.remove(f"{base_dir}/VC0_VC1_Slips_Detected.png")
+    except FileNotFoundError:
+        pass
+
+    try:
+        os.remove(f"{base_dir}/output.txt")
+    except FileNotFoundError:
+        pass
 
 
 def main():
     "Main Execution"
     print("---VC0/VC1 Slip Detection Tool---")
-    url = "//noodle/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector/VC0_VC1_Slips_Detected.html"
-    driver = webdriver.Chrome()
+    base_dir = "//noodle/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector"
+    # base_dir = "/share/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector"
     data_history = []
+    driver = webdriver.Chrome()
     # user_vars = UserVariables()
+    startup_cleanup(base_dir)
 
     try:
         while True:
             user_vars = UserVariables()
             print(f" - {user_vars.ts} (Enter ctrl + c to exit tool)")
+
             raw_data = data_request(user_vars, "M0190")
             data_history = append_data_history(data_history, raw_data)
             detected_slips = vc0_vc1_slip_detection(raw_data)
-            generate_plot(detected_slips, data_history)
+            generate_plot(detected_slips, data_history, base_dir)
 
             try:
-                driver.get(url)
+                driver.get(f"{base_dir}/VC0_VC1_Slips_Detected.png")
             except selenium.common.exceptions.NoSuchWindowException:
                 driver = webdriver.Chrome()
-                driver.get(url)
+                driver.get(f"{base_dir}/VC0_VC1_Slips_Detected.png")
                 print(" - Don't close the window. \U0001F440")
 
-            # # Crude shifting time window (for testig)
+            # # Crude shifting time window (for testing)
             # user_vars.ts += timedelta(seconds=10)
             # user_vars.tp += timedelta(seconds=10)
-            time.sleep(8)
+            os.remove(f"{base_dir}/VC0_VC1_Slips_Detected.png")
+            time.sleep(10)
 
     except KeyboardInterrupt:
         print("Ending Script!")
-        cleanup(data_history)
+        save_data(data_history, base_dir)
 
 
 main()
