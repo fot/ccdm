@@ -1,12 +1,30 @@
 "Generate the Status Report"
 
 import itertools as it
+import dataclasses
 from datetime import datetime, timedelta
 from pathlib import Path
 from tqdm import tqdm
 from cxotime import CxoTime
 from components.misc import make_output_dir
 from components.tlm_request import data_request
+
+
+@dataclasses.dataclass
+class BEATDataPoint:
+    "Data class for a BEAT report data point."
+    ssr: None
+    doy: None
+    time: None
+    submodule: None
+    dbe: None
+
+
+@dataclasses.dataclass
+class BEATData:
+    "Data class for BEAT data"
+    file_list: list
+    dbe_data: list
 
 
 def generate_status_report(user_vars, auto_gen = False):
@@ -26,6 +44,8 @@ def generate_status_report(user_vars, auto_gen = False):
         tlm_corruption_detection(user_vars, file)
         obc_error_detection(user_vars, file)
         limit_violation_detection(user_vars, file)
+        dbe_detection(user_vars, file)
+        file.close()
 
     print(f"""Done! Data written to "{file_title}" in "{set_dir}".""")
 
@@ -264,7 +284,7 @@ def limit_violation_detection(user_vars, file):
     Input: user_vars
     Output: None
     """
-    print("\nGenerating Limit Violation .txt file...")
+    print("\nAdding Limit Violation data...")
     limit_dir_list = get_limit_report_dirs(user_vars)
     limit_data = get_limit_reports(limit_dir_list)
     write_limit_report_file(user_vars, file, limit_data)
@@ -373,10 +393,134 @@ def write_limit_violations(report_data, file):
                         file.write(
                             f'  - ({time} EST) MSID "{msid}", was "{error}" with a measured value '
                             f'of "{state}" with an expected state of "{e_state}".\n')
-                    except BaseException:
+                    except IndexError:
                         if list_item[1] == "COTHIRTD": # MSID COTHIRTD has a different format
                             msid, error, state = list_item[1],list_item[2],list_item[4]
                             file.write(
                                 f'  - ({time} EST) MSID "{msid}", was "{error}" with a measured'
                                 f' value of "{state}" with an expected state of "<BLANK>".\n')
         file.write("\n")
+
+
+def dbe_detection(user_vars, file):
+    "Pull DBEs from BEAT files to populate into report file."
+    print("\nAdding DBE data...")
+    data = BEATData([],[])
+    get_beat_report_dirs(user_vars, data)
+    get_ssr_beat_reports(data)
+    write_beat_report(user_vars, data, file)
+
+
+def get_ssr_beat_reports(data):
+    "Parse SSR beat reports into data"
+    print(" - Parsing SSR beat report data...")
+
+    for beat_report in data.file_list:
+        try:
+            data_point = parse_beat_report(beat_report)
+        except FileNotFoundError:
+            print(f"""     - Error parsing file "{beat_report[-34:]}"! Skipping file...""")
+
+        if data_point:
+            data.dbe_data += data_point
+
+
+def parse_beat_report(fname):
+    """
+    Description: Parse beat reports
+    """
+    cur_state, data_list = 'FIND_SSR', []
+
+    with open(fname, 'r', encoding="utf-8") as beat_report:
+        for line in beat_report:
+            data_point = BEATDataPoint(None,None,None,None,None)
+            if cur_state == 'FIND_SSR':
+                if line[0:5] == 'SSR =':
+                    ssr = str(line[6]) # Character 'A' or 'B'
+                    cur_state = 'FIND_SUBMOD'
+            elif cur_state == 'FIND_SUBMOD':
+                if line[0:7] =='SubMod ':
+                    cur_state = 'REC_SUBMOD'
+            elif cur_state == 'REC_SUBMOD':
+                if line[0].isdigit():
+                    parsed = line.split()
+                    date = datetime.strptime(f"{parsed[4]}", "%Y%j.%H%M%S")
+                    data_point.ssr = ssr
+                    data_point.time = f"""{date.strftime("%H:%M:%S")}z"""
+                    data_point.doy =  date.strftime("%Y:%j")
+                    data_point.submodule = int(parsed[0])
+                    data_point.dbe = int(parsed[3])
+                    data_list.append(data_point)
+                else:
+                    cur_state = 'FIND_SSR'
+
+    return data_list if data_list else None
+
+
+def get_beat_report_dirs(user_vars, data):
+    "Generate list of beat report files"
+    print(" - Building SSR beat report directory list...")
+    start_date = datetime.strptime(
+        f"{user_vars.year_start}:{user_vars.doy_start}:000000","%Y:%j:%H%M%S"
+        )
+    end_date = datetime.strptime(
+        f"{user_vars.year_end}:{user_vars.doy_end}:235959","%Y:%j:%H%M%S"
+        )
+    root_folder = (
+        "/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/SSR_Short_Reports/"
+        )
+    full_file_list, file_list = ([] for i in range(2))
+
+    for year_diff in range((end_date.year-start_date.year) + 1):
+        year = start_date.year + year_diff
+        dir_path = Path(root_folder + "/" + str(year))
+        full_file_list_path = list(x for x in dir_path.rglob('BEAT*.*'))
+
+        for list_item in full_file_list_path:
+            full_file_list.append(str(list_item))
+
+    for day in range((end_date-start_date).days + 1):
+        cur_day = start_date + timedelta(days=day)
+        cur_year_str = cur_day.year
+        cur_day_str = cur_day.strftime("%j")
+
+        for list_item in full_file_list:
+            if f"BEAT-{cur_year_str}{cur_day_str}" in list_item:
+                file_list.append(list_item)
+
+    data.file_list = file_list
+
+
+def write_beat_report_data(data, file):
+    "Write data parsed from BEAT reports into output file."
+    for index, (data_point) in enumerate(data.dbe_data):
+        ssr = data_point.ssr
+        doy = data_point.doy
+        previous_doy = data.dbe_data[index - 1].doy
+        time = data_point.time
+        submodule = data_point.submodule
+        dbe = data_point.dbe
+
+        if doy != previous_doy:
+            file.write(f"\nDBEs for {doy}:\n")
+
+        file.write(f"  - ({time}) SSR-{ssr} | submodule: {submodule} | DBEs: {dbe}\n")
+
+    file.write("\n")
+
+
+def write_beat_report(user_vars, data, file):
+    "Write formatting for BEAT reports into output file."
+    line = "-----------------------------"
+    file.write(
+        f"Detected DBEs for {user_vars.year_start}:{user_vars.doy_start} "
+        f"thru {user_vars.year_end}:{user_vars.doy_end}\n\n" + line + line + line)
+
+    if data.dbe_data:
+        write_beat_report_data(data,file)
+    else:
+        file.write("\nNo DBEs detected for the selected date/time range \U0001F63B.\n\n")
+
+    file.write("----------END OF DBE DETECTION----------")
+    file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
+    print(""" - Done! Data written to "DBE section".""")
