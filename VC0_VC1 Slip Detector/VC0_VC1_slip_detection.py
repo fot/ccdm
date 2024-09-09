@@ -4,10 +4,12 @@ import urllib
 import json
 import time
 import os
-from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import selenium
+import kaleido #0.1.0.post1
+from getpass import getuser
 from selenium import webdriver
+from datetime import datetime, timedelta
 
 
 class UserVariables():
@@ -17,22 +19,6 @@ class UserVariables():
 
         # Realtime
         self.ts, self.tp = datetime.now()-timedelta(seconds=10), datetime.now()
-
-        # # bad comm (1) (2024:198:11:00:00 thru 2024:198:12:06:00)
-        # self.tp = datetime.strptime("2024:198:11:50:00", "%Y:%j:%H:%M:%S")
-        # self.ts = self.tp - timedelta(seconds=10)
-
-        # # bad comm (2) (2024:200:10:20:00 thru 2024:200:11:30:00)
-        # self.tp = datetime.strptime("2024:200:10:20:00", "%Y:%j:%H:%M:%S")
-        # self.ts = self.tp - timedelta(seconds=10)
-
-        # # A good comm (1) (2024:199:00:05:00 thru 2024:199:02:00:00)
-        # self.tp = datetime.strptime("2024:199:00:05:00", "%Y:%j:%H:%M:%S")
-        # self.ts = self.tp - timedelta(seconds=10)
-
-        # # A good comm (2) (2024:199:10:27:00 thru 2024:199:11:47:00)
-        # self.tp = datetime.strptime("2024:199:10:27:00", "%Y:%j:%H:%M:%S")
-        # self.ts = self.tp - timedelta(seconds=10)
 
 
 def data_request(user_vars, msid):
@@ -47,7 +33,7 @@ def data_request(user_vars, msid):
     url = f"{base_url}{msid}&ts={ts_greta}&tp={tp_greta}"
 
     try:
-        response = urllib.request.urlopen(url)
+        response = urllib.request.urlopen(url, timeout = 3)
     except urllib.error.URLError:
         print(" - Network error. Some data will be missing in plot")
 
@@ -154,7 +140,7 @@ def generate_plot(detected_slips, data_history, base_dir):
 def save_data(data_history, base_dir):
     "Clean up things"
 
-    with open(f"{base_dir}/output.txt", "w", encoding = "utf-8") as file:
+    with open(f"{base_dir}/VC0_VC1_Slips_Detection_Output.txt", "w", encoding = "utf-8") as file:
         file.write("-----------Time-----------  |  --Value--\n")
         for item in data_history:
             file.write(f"{item[0]}  |   {item[1]}\n")
@@ -169,7 +155,7 @@ def startup_cleanup(base_dir):
         pass
 
     try:
-        os.remove(f"{base_dir}/output.txt")
+        os.remove(f"{base_dir}/VC0_VC1_Slips_Detection_Output.txt")
     except FileNotFoundError:
         pass
 
@@ -177,11 +163,9 @@ def startup_cleanup(base_dir):
 def main():
     "Main Execution"
     print("---VC0/VC1 Slip Detection Tool---")
-    base_dir = "//noodle/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector"
-    # base_dir = "/share/FOT/engineering/ccdm/Tools/VC0_VC1 Slip Detector"
+    base_dir = f"C:/users/{getuser()}/Desktop"
     data_history = []
     driver = webdriver.Chrome()
-    # user_vars = UserVariables()
     startup_cleanup(base_dir)
 
     try:
@@ -201,11 +185,8 @@ def main():
                 driver.get(f"{base_dir}/VC0_VC1_Slips_Detected.png")
                 print(" - Don't close the window. \U0001F440")
 
-            # # Crude shifting time window (for testing)
-            # user_vars.ts += timedelta(seconds=10)
-            # user_vars.tp += timedelta(seconds=10)
             os.remove(f"{base_dir}/VC0_VC1_Slips_Detected.png")
-            time.sleep(10)
+            time.sleep(7)
 
     except KeyboardInterrupt:
         print("Ending Script!")
