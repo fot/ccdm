@@ -7,7 +7,7 @@ from Ska.engarchive import fetch_eng as fetch
 
 def ska_data_request(ts, tp, msid, high_rate = False):
     "Requests a particular MSID for an interval from the ska_eng archive"
-    print(f"""   - Requesting data for MSID "{msid}" ({ts} thru {tp})...""")
+    print(f"""   - Requesting SKA data for MSID "{msid}" ({ts} thru {tp})...""")
     ts.format = "yday"
     tp.format = "yday"
     fetch.data_source.set("maude")
