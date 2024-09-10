@@ -183,11 +183,11 @@ def main():
 
             try:
                 driver.get(f"file://{base_dir}/VC0_VC1_Slips_Detected.png")
-            except selenium.common.exceptions.NoSuchWindowException:
+            except selenium.common.exceptions.WebDriverException:
                 options = webdriver.FirefoxOptions()
                 options.binary_location = "/usr/bin/firefox.file"
-                driver = webdriver.Firefox()
-                driver.get(f"{base_dir}/VC0_VC1_Slips_Detected.png")
+                driver = webdriver.Firefox(options=options)
+                driver.get(f"file://{base_dir}/VC0_VC1_Slips_Detected.png")
                 print(" - Don't close the window. \U0001F440")
 
             os.remove(f"{base_dir}/VC0_VC1_Slips_Detected.png")
