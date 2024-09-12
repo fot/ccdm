@@ -50,7 +50,7 @@ def add_proton_flux_data(figure, data, formatted_times, row):
             else:
                 add_plot_trace(
                     figure, formatted_times, data_list,
-                    "Proton Flux > 5 MeV", row)
+                    f"Proton Flux > {list_id} MeV", row)
         else:
             print(f"""     - Omitting "Proton Flux > {list_id} MeV" """
                   "trace due to no data being collected...")
