@@ -3,6 +3,13 @@
 import os
 
 
+def is_windows():
+    "Determine if script ran on windows or linux"
+    if os.name == "nt":
+        return True
+    return False
+
+
 def create_dir(input_dir):
     """
     Description: Create the given directory path
@@ -29,7 +36,13 @@ def write_html_file(user_vars, figure, auto = False):
             f"({user_vars.start_year}{user_vars.start_doy}_{user_vars.end_year}{user_vars.end_doy})"
         )
 
-    output_dir = "/share/FOT/engineering/ccdm/Tools/GOES Spacecraft Space Weather Tool/Output/"
+    if is_windows():
+        output_dir = ("//noodle/FOT/engineering/ccdm/Tools/"
+                      "GOES Spacecraft Space Weather Tool/Output")
+    else:
+        output_dir = ("/share/FOT/engineering/ccdm/Tools/"
+                "GOES Spacecraft Space Weather Tool/Output/")
+
     create_dir(output_dir)
     figure.write_html(f"{output_dir}/{figure_title}.html")
     print(f""" - Done! Data written to "{output_dir}{figure_title}.html" in output directory.""")
