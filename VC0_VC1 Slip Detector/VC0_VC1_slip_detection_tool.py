@@ -7,9 +7,10 @@ import os
 import plotly.graph_objects as go
 import selenium
 import kaleido #0.1.0.post1
+import dataclasses
 from getpass import getuser
 from selenium import webdriver
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 class UserVariables():
@@ -18,7 +19,22 @@ class UserVariables():
     def __init__(self):
 
         # Realtime
-        self.ts, self.tp = datetime.now()-timedelta(seconds=10), datetime.now()
+        self.ts = datetime.now(timezone.utc) - timedelta(seconds=10)
+        self.tp = datetime.now(timezone.utc)
+
+
+@dataclasses.dataclass
+class DataPoint():
+    "A single data point"
+    date_time: None
+    value: None
+
+
+def is_windows():
+    "Determine if script ran on windows or linux"
+    if os.name == "nt":
+        return True
+    return False
 
 
 def data_request(user_vars, msid):
@@ -73,8 +89,9 @@ def append_data_history(history_data, raw_data):
     times =  raw_data["data-fmt-1"]["times"]
 
     for raw_time, value in zip(times, values):
-        corrected_time = datetime.strptime(str(raw_time), "%Y%j%H%M%S%f")
-        history_data.append([corrected_time, int(value)])
+        history_data.append(
+            DataPoint(datetime.strptime(str(raw_time),"%Y%j%H%M%S%f"), int(value))
+            )
 
     return history_data
 
@@ -106,8 +123,8 @@ def generate_plot(detected_slips, data_history, base_dir):
 
     # Monitor Data History Plot
     for item in data_history:
-        x_values.append(item[0])
-        y_values.append(item[1])
+        x_values.append(item.date_time)
+        y_values.append(item.value)
 
     plot.add_traces(
         go.Scatter(
@@ -115,6 +132,7 @@ def generate_plot(detected_slips, data_history, base_dir):
             y = y_values,
             mode = "lines",
             name = "VC0/VC1 Slip",
+            marker = {"color":"rgba(235,225,52,1)"}
         )
     )
 
@@ -141,9 +159,9 @@ def save_data(data_history, base_dir):
     "Clean up things"
 
     with open(f"{base_dir}/VC0_VC1_Slips_Detection_Output.txt", "w", encoding = "utf-8") as file:
-        file.write("-----------Time-----------  |  --Value--\n")
+        file.write("------Time--------  |  --Value--\n")
         for item in data_history:
-            file.write(f"{item[0]}  |   {item[1]}\n")
+            file.write(f"{item.date_time.strftime('%Y:%j:%H:%M:%S')}z  |    {item.value}\n")
         file.close()
 
 
@@ -163,30 +181,46 @@ def startup_cleanup(base_dir):
 def main():
     "Main Execution"
     print("---VC0/VC1 Slip Detection Tool---")
-    base_dir = f"C:/users/{getuser()}/Desktop"
+    if is_windows():
+        base_dir = f"C:/users/{getuser()}/Desktop"
+        driver = webdriver.Chrome()
+    else:
+        base_dir = f"/home/{getuser()}/Desktop"
+        options = webdriver.FirefoxOptions()
+        options.binary_location = "/usr/bin/firefox.file"
+        driver = webdriver.Firefox(options=options)
+
     data_history = []
-    driver = webdriver.Chrome()
     startup_cleanup(base_dir)
 
     try:
         while True:
             user_vars = UserVariables()
-            print(f" - {user_vars.ts} (Enter ctrl + c to exit tool)")
-
+            print(f" - {user_vars.ts.strftime('%Y:%j:%H:%M:%S')} (Enter ctrl + c to exit tool)")
             raw_data = data_request(user_vars, "M0190")
             data_history = append_data_history(data_history, raw_data)
             detected_slips = vc0_vc1_slip_detection(raw_data)
             generate_plot(detected_slips, data_history, base_dir)
 
-            try:
-                driver.get(f"{base_dir}/VC0_VC1_Slips_Detected.png")
-            except selenium.common.exceptions.NoSuchWindowException:
-                driver = webdriver.Chrome()
-                driver.get(f"{base_dir}/VC0_VC1_Slips_Detected.png")
-                print(" - Don't close the window. \U0001F440")
+            if is_windows():
+                try:
+                    driver.get(f"{base_dir}/VC0_VC1_Slips_Detected.png")
+                except selenium.common.exceptions.NoSuchWindowException:
+                    driver = webdriver.Chrome()
+                    driver.get(f"{base_dir}/VC0_VC1_Slips_Detected.png")
+                    print(" - Don't close the window. \U0001F440")
+            else:
+                try:
+                    driver.get(f"file://{base_dir}/VC0_VC1_Slips_Detected.png")
+                except selenium.common.exceptions.WebDriverException:
+                    options = webdriver.FirefoxOptions()
+                    options.binary_location = "/usr/bin/firefox.file"
+                    driver = webdriver.Firefox(options=options)
+                    driver.get(f"file://{base_dir}/VC0_VC1_Slips_Detected.png")
+                    print(" - Don't close the window. \U0001F440")
 
             os.remove(f"{base_dir}/VC0_VC1_Slips_Detected.png")
-            time.sleep(7)
+            time.sleep(9)
 
     except KeyboardInterrupt:
         print("Ending Script!")
