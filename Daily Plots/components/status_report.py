@@ -27,6 +27,15 @@ class BEATData:
     dbe_data: list
 
 
+@dataclasses.dataclass
+class OBCErrorDataPoint:
+    "Data class for an obc error data point."
+    doy: None
+    time: None
+    error_type: None
+    error: None
+
+
 def generate_status_report(user_vars, auto_gen = False):
     "write the status report file"
     print(" - Generating CCDM status report .txt file...")
@@ -47,7 +56,7 @@ def generate_status_report(user_vars, auto_gen = False):
         dbe_detection(user_vars, file)
         file.close()
 
-    print(f"""Done! Data written to "{file_title}" in "{set_dir}".""")
+    print(f"""\nDone! Data written to "{file_title}" in "{set_dir}".""")
 
 
 def tlm_corruption_detection(user_vars, file):
@@ -191,38 +200,37 @@ def get_obc_report_dirs(user_vars):
 def get_obc_error_reports(file_list):
     "Parse OBC error reports into data"
     print(" - Parsing OBC Error reports...")
-    per_report_data, report_data, formatted_data = ({} for i in range(3))
+    report_data = []
 
     for file_dir in tqdm(file_list):
-        per_report_data = parse_obc_report(file_dir)
-        report_data.update(per_report_data)
+        report_data.extend(parse_obc_report(file_dir))
 
-    for date_time, data in report_data.items():
-        formatted_data.setdefault(date_time,[]).append({date_time:data})
-
-    return formatted_data
+    return report_data
 
 
 def parse_obc_report(file_dir):
     """
     Description: Parse OBC error report
     """
-    data_dict = {}
+    data_list = []
     with open(file_dir, 'r', encoding="utf-8") as obc_error:
         for index, (line) in enumerate(obc_error):
             if index in it.chain(range(6,38), range(45,77)): # Only parse error lines 1-32 & 33-64
                 parsed = line.split()
-                try:
-                    date = datetime.strptime(parsed[1],"%Y%j:%H%M%S")
-                    error_type = parsed[7]
+                if parsed[1] != "NONE":
+                    data_point = OBCErrorDataPoint(None,None,None,None)
+                    full_date = datetime.strptime(parsed[1],"%Y%j:%H%M%S")
+                    data_point.doy = full_date.strftime("%Y:%j")
+                    data_point.time = full_date.strftime("%H:%M:%S")
+                    data_point.error_type = parsed[7]
                     try:
                         error = f"{parsed[8]} {parsed[9]} {parsed[10]} {parsed[11]}"
-                    except BaseException:
+                    except IndexError:
                         error = f"{parsed[8]}"
-                    data_dict.setdefault(date,[]).append({f"{error_type}":f"{error}"})
-                except BaseException:
-                    pass
-    return data_dict
+                    data_point.error = error
+                    data_list.append(data_point)
+
+    return data_list if data_list else None
 
 
 def write_obc_error_report(user_vars, file, report_data):
@@ -235,8 +243,8 @@ def write_obc_error_report(user_vars, file, report_data):
     file.write(
         f"Detected OBC Errors for {user_vars.year_start}:{user_vars.doy_start} thru "
         f"{user_vars.year_end}:{user_vars.doy_end}\n" +
-        "\n" + line + line + line + "\n"
-    )
+        "\n" + line + line + line)
+
     if report_data:
         write_obc_errors(report_data, file)
     else:
@@ -253,18 +261,18 @@ def write_obc_errors(report_data, file):
     Input: Report data, and file object
     Output: None
     """
-    for date, data in report_data.items():
-        file.write(f'OBC Errors for {date.strftime("%Y:%j")}:\n')
-        for dict_list in data:
-            for date_time, type_error_dict_list in dict_list.items():
-                for type_error in type_error_dict_list:
-                    for error_type, error in type_error.items():
-                        item_time = date_time.strftime("%H:%M:%S")
-                        file.write(
-                            f' • ({item_time}z) Error Type:"{error_type}"'
-                            f'  |  Error:"{error}"\n'
-                        )
-        file.write("\n")
+    for index, (data_point) in enumerate(report_data):
+        doy = data_point.doy
+        previous_doy = report_data[index - 1].doy
+        time = data_point.time
+        error = data_point.error
+        error_type = data_point.error_type
+
+        if doy != previous_doy:
+            file.write(f"\nOBC Errors for {doy}:\n")
+
+        file.write(f"  - ({time}) Error Type:{error_type}  |  Error:{error}\n")
+    file.write("\n")
 
 
 def format_doy(doy_no_format):
@@ -521,6 +529,6 @@ def write_beat_report(user_vars, data, file):
     else:
         file.write("\nNo DBEs detected for the selected date/time range \U0001F63B.\n\n")
 
-    file.write("----------END OF DBE DETECTION----------")
+    file.write("  ----------END OF DBE DETECTION----------")
     file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
     print(""" - Done! Data written to "DBE section".""")
