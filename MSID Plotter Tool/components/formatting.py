@@ -4,7 +4,7 @@ from tqdm import tqdm
 from cxotime import CxoTime
 
 
-def format_times(raw_data,user_vars):
+def format_times(raw_data, user_vars):
     "Formats a list of time into a plottable format."
     print("  - Formatting Data...")
     formated_times = []
@@ -17,7 +17,7 @@ def format_times(raw_data,user_vars):
         time_format = None
 
     for time_item in tqdm(times_list):
-        new_list_item = CxoTime(time_item,format=time_format)
+        new_list_item = CxoTime(time_item, format=time_format)
         formated_times.append(new_list_item.datetime)
 
     return formated_times

@@ -9,15 +9,17 @@ def user_menu():
     while True:
         user_choice = input(
             """\nWhat would you like to do next? Input to continue.\n"""
-            """1) Restart Inputs\n"""
+            """1) Restart All Inputs\n"""
+            """2) Restart Date Inputs\n"""
+            """3) Restart MSID Inputs\n"""
             """0) Exit Tool\n"""
             """Input: """
         )
-        if user_choice in ("1","0"):
+        if int(user_choice) in range(0,4):
             break
         print(
             f"""\n"{user_choice}" was an invalid input.\nplease input 
-            a single digit interger that is 1 or 0."""
+            a single digit interger that is 0 thru 3."""
             )
 
     return user_choice
@@ -38,7 +40,8 @@ def generate_html_output(user_vars,plot):
     set_dir = "/share/FOT/engineering/ccdm/Tools/MSID Plotter/"
     create_dir(f"{set_dir}/Output")
     plot.write_html(f"{set_dir}/Output/{user_vars.file_title}")
-    print(f""" - Done! Data written to "{user_vars.file_title}" in output directory.""")
+    output_dir = r"\\noodle\FOT\engineering\ccdm\Tools\MSID Plotter\Output"
+    print(f""" - Done! Data written to "{user_vars.file_title}" in {output_dir}.""")
 
 
 def cleanup():

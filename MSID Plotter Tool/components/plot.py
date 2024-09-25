@@ -36,7 +36,4 @@ def generate_plot(user_vars):
 
     format_plot_axes(plot, user_vars.plot_title)
 
-    if user_vars.show_plot in ("Y","y","Yes","yes"):
-        plot.show()
-
     return plot
