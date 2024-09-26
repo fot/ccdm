@@ -1,6 +1,58 @@
 "Methods for Collecting User Inputs used in MSID Plotter Tool"
 
+import dataclasses
+import time
+from os import system
+from components.formatting import get_titles
 from components.data import check_msid_validity
+from cxotime import CxoTime
+
+
+@dataclasses.dataclass
+class UserVariables:
+    "Class to store user variable inputs."
+    msids = []
+    year_start = str()
+    doy_start  = str()
+    year_end   = str()
+    doy_end    = str()
+    data_source = str()
+    plot_title = str()
+    file_title = str()
+    ts = None
+    tp = None
+
+
+def get_user_inputs(user_vars, state):
+    "populate user_vars with data"
+    system("clear")
+
+    while True:
+        if state == "all":
+            user_vars.msids       = get_msids()
+            user_vars.year_start  = get_year_start()
+            user_vars.doy_start   = get_doy_start()
+            user_vars.year_end    = get_year_end()
+            user_vars.doy_end     = get_doy_end()
+        elif state == "dates":
+            user_vars.year_start  = get_year_start()
+            user_vars.doy_start   = get_doy_start()
+            user_vars.year_end    = get_year_end()
+            user_vars.doy_end     = get_doy_end()
+        elif state == "MSIDs":
+            user_vars.msids       = get_msids()
+
+        user_vars.data_source = get_data_source()
+        user_vars.plot_title, user_vars.file_title = get_titles(user_vars)
+        user_vars.ts = CxoTime(f"{user_vars.year_start}:{user_vars.doy_start}:00:00:00")
+        user_vars.tp = CxoTime(f"{user_vars.year_end}:{user_vars.doy_end}:23:59:59.999")
+
+        if input("\nAre these inputs correct? Y/N: ") in ("Y","y","Yes","yes"):
+            break
+        print("\nRestarting Inputs...\n\n")
+        time.sleep(0.5)
+
+    return user_vars
 
 
 def get_msids():
@@ -80,11 +132,6 @@ def get_doy_end():
             break
         print(f"{doy_input} was an invalid input, please try again\n")
     return doy_input
-
-
-def get_show_plot():
-    "Show plot toggle"
-    return input("Do you wish to display plot? Y/N: ")
 
 
 def get_data_source():

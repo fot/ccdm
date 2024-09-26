@@ -4,7 +4,7 @@ from tqdm import tqdm
 from cxotime import CxoTime
 
 
-def format_times(raw_data,user_vars):
+def format_times(raw_data, user_vars):
     "Formats a list of time into a plottable format."
     print("  - Formatting Data...")
     formated_times = []
@@ -17,24 +17,27 @@ def format_times(raw_data,user_vars):
         time_format = None
 
     for time_item in tqdm(times_list):
-        new_list_item = CxoTime(time_item,format=time_format)
+        new_list_item = CxoTime(time_item, format=time_format)
         formated_times.append(new_list_item.datetime)
 
     return formated_times
 
 
-def format_plot_axes(plot, plot_title):
+def format_plot_axes(plot, user_vars):
     """
     Description: Formats plot axies based on string inputs
-    Input: Plot, Plot title (string)
+    Input: Plot, user variables
     Output: None
     """
-    plot["layout"]["xaxis"]["title"] = "Time/Date"
-    plot["layout"]["yaxis"]["title"] = "MSID Value"
+    plot["layout"][f"xaxis{len(user_vars.msids)}"]["title"] = "Time/Date"
+
+    for index, (msid) in enumerate(user_vars.msids):
+        plot["layout"][f"yaxis{index + 1}"]["title"] = f"{msid}"
+
     plot.update_xaxes(gridcolor="rgba(80,80,80,1)")
     plot.update_yaxes(gridcolor="rgba(80,80,80,1)")
     plot.update_layout(
-        title=plot_title,
+        title=user_vars.plot_title,
         font={
             "family": "Courier New, monospace",
             "size": 14,
@@ -43,7 +46,8 @@ def format_plot_axes(plot, plot_title):
         plot_bgcolor="rgba(0,0,0,1)",
         paper_bgcolor="rgba(0,0,0,1)",
         autosize=True,
-        hovermode="x unified",
+        hoversubplots = "axis",
+        hovermode = "x unified",
     )
 
 
