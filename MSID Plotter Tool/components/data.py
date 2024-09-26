@@ -28,7 +28,7 @@ def data_request(user_vars,msid):
     Input: User Variables, MSID
     Output: Data dict or JSON
     """
-    print(f" - Requesting {user_vars.data_source} data for {msid}...")
+    print(f"  - Requesting {user_vars.data_source} data for {msid}...")
     user_vars.ts.format = "yday"
     user_vars.tp.format = "yday"
     base_url = "https://occweb.cfa.harvard.edu/maude/mrest/FLIGHT/msid.json?m="
