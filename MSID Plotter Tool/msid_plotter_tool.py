@@ -29,6 +29,8 @@ def main():
                 get_user_inputs(user_vars, "dates")
             elif choice == "3":
                 get_user_inputs(user_vars, "MSIDs")
+            elif choice == "4":
+                get_user_inputs(user_vars, "data source")
             else: break
 
 

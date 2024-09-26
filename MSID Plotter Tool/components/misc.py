@@ -12,14 +12,15 @@ def user_menu():
             """1) Restart All Inputs\n"""
             """2) Restart Date Inputs\n"""
             """3) Restart MSID Inputs\n"""
+            """4) Restart Data Source Input\n"""
             """0) Exit Tool\n"""
             """Input: """
         )
-        if int(user_choice) in range(0,4):
+        if int(user_choice) in range(0,5):
             break
         print(
-            f"""\n"{user_choice}" was an invalid input.\nplease input 
-            a single digit interger that is 0 thru 3."""
+            f"""\n"{user_choice}" was an invalid input.\nplease input """
+            "a single digit interger that is 0 thru 4."
             )
 
     return user_choice
