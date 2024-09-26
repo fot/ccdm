@@ -34,6 +34,7 @@ def get_user_inputs(user_vars, state):
             user_vars.doy_start   = get_doy_start()
             user_vars.year_end    = get_year_end()
             user_vars.doy_end     = get_doy_end()
+            user_vars.data_source = get_data_source()
         elif state == "dates":
             user_vars.year_start  = get_year_start()
             user_vars.doy_start   = get_doy_start()
@@ -41,8 +42,9 @@ def get_user_inputs(user_vars, state):
             user_vars.doy_end     = get_doy_end()
         elif state == "MSIDs":
             user_vars.msids       = get_msids()
+        elif state == "data source":
+            user_vars.data_source = get_data_source()
 
-        user_vars.data_source = get_data_source()
         user_vars.plot_title, user_vars.file_title = get_titles(user_vars)
         user_vars.ts = CxoTime(f"{user_vars.year_start}:{user_vars.doy_start}:00:00:00")
         user_vars.tp = CxoTime(f"{user_vars.year_end}:{user_vars.doy_end}:23:59:59.999")
