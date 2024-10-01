@@ -15,6 +15,7 @@ def generate_rf_power_data_plots(user_vars, auto_gen = False):
     print("\nGenerating RF Power Data Plot...")
     figure = subplots.make_subplots(
         rows=5,cols=2,shared_xaxes="columns",row_heights=[10,2,1,10,2],
+        specs = [[{},{}] for i in range(5)],vertical_spacing = 0.05,horizontal_spacing=0.05,
         subplot_titles=(
             "Tranmitter RF Power Output (Counts)","Power Amplifier Power Data","","","","",
             "Tranmitter RF Power Output (dBm)","Antenna & Transmitter Temps"
@@ -36,12 +37,12 @@ def generate_rf_power_data_plots(user_vars, auto_gen = False):
         1:"Counts",2:"dBm",3:"Off/On",4:"Off/On",
         7:"dBm",8:"Temp (f)",9:"Off/On"
         }
-    add_trans_rf_pwr_cnts_plot(user_vars, figure)
-    add_pa_power_data_plot(user_vars, figure)
-    add_trans_rf_pwr_output_plot(user_vars, figure)
-    add_antenna_trans_temp_plot(user_vars, figure)
-    format_plot_axes(figure, figure_title, yaxis_titles)
-    write_html_file(user_vars, figure, figure_title, auto_gen)
+    add_trans_rf_pwr_cnts_plot(user_vars,figure)
+    add_pa_power_data_plot(user_vars,figure)
+    add_trans_rf_pwr_output_plot(user_vars,figure)
+    add_antenna_trans_temp_plot(user_vars,figure)
+    format_plot_axes(user_vars,figure,figure_title,yaxis_titles)
+    write_html_file(user_vars,figure,figure_title,auto_gen)
 
 
 def add_trans_rf_pwr_cnts_plot(user_vars,figure):
