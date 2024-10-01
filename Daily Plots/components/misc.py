@@ -62,16 +62,14 @@ def user_menu():
     Output: Plot choice <str>
     """
     while True:
-        user_input = input(
+        choice_dict = {1:"CCDM Daily Plots",2:"Report",3:"All",4:"Restart",0:"Exit"}
+        user_input = int(input(
             "\nWhat do you wish to generate?\n"
             "  1) CCDM Daily Plots\n  2) Report .txt file\n"
             "  3) All (3x plots and .txt file)\n"
             "  4) Restart Inputs\n  0) Exit Tool\n  Input: "
-        )
-        if (len(str(user_input))) == 1 and (0 <= int(user_input) <= 4):
-            choice_dict = {
-                1:"CCDM Daily Plots",2:"Report",
-                3:"All",4:"Restart",0:"Exit"}
+        ))
+        if user_input in range(0,5):
             user_choice = choice_dict.get(int(user_input))
             break
         print(
@@ -80,23 +78,21 @@ def user_menu():
             )
 
     if user_choice == "CCDM Daily Plots":
+        choice_dict = {
+            1: "Receiver Data", 2: "RF Power Data", 3: "Power Amplifier Data",
+            4: "CCDM Daily Plots", 5: "Restart", 0: "Exit"}
         while True:
-            user_input = input(
+            user_input = int(input(
                 "\n--------CCDM Daily Plot(s) Generator--------\n"
                 "Which CCDM plot(s) do you want to generate?\n"
                 "  1) Receiver Data\n  2) RF Power Data\n  3) Power Amplifier Data\n"
                 "  4) All of them\n  5) Restart Inputs\n  0) Exit Script\n  Input: "
-            )
-            if (len(str(user_input)) == 1) and (0 <= int(user_input) <= 5):
-                choice_dict = {
-                    1: "Receiver Data", 2: "RF Power Data", 3: "Power Amplifier Data",
-                    4: "All plots", 5: "Restart", 0: "Exit"
-                }
-                user_choice = choice_dict.get(int(user_input))
+            ))
+            if user_input in range(0,6):
+                user_choice = choice_dict.get(user_input)
                 break
             print(
-                f"""\n"{user_input}" was an invalid input.\nplease input 
-                a single digit interger that is 1, 2, 3, 4, 5, or 0."""
-                )
+                f"""\n"{user_input}" was an invalid input.\nplease input """
+                "a single digit interger that is 1, 2, 3, 4, 5, or 0.")
 
     return user_choice

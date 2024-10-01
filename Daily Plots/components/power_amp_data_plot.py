@@ -16,6 +16,7 @@ def generate_power_amp_data_plots(user_vars, auto_gen = False):
     print("\nGenerating Power Amplifier Data Plot...")
     figure = subplots.make_subplots(
         rows=4,cols=2,shared_xaxes="columns",row_heights=[10,1,10,2],
+        specs = [[{},{}] for i in range(4)],vertical_spacing=0.05,horizontal_spacing=0.05,
         subplot_titles=(
             "Power Amplifier Secondary Voltage Data","PA & PA Baseplate Thermal Data","","",
             "PA Power Data","Chandra Ranging Data"
@@ -39,7 +40,7 @@ def generate_power_amp_data_plots(user_vars, auto_gen = False):
     add_pa_pabp_thrm_data_plot(user_vars,figure)
     add_pa_pwr_data_plot(user_vars,figure)
     add_chandra_range_plots(user_vars,figure,pa_plot=True)
-    format_plot_axes(figure,figure_title,yaxis_titles)
+    format_plot_axes(user_vars,figure,figure_title,yaxis_titles)
     write_html_file(user_vars, figure, figure_title, auto_gen)
 
 

@@ -16,7 +16,7 @@ def format_times(raw_data, user_vars):
         times_list = raw_data.times
         time_format = None
 
-    for time_item in tqdm(times_list):
+    for time_item in tqdm(times_list, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
         new_list_item = CxoTime(time_item, format=time_format)
         formated_times.append(new_list_item.datetime)
 

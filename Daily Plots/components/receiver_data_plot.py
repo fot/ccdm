@@ -16,6 +16,7 @@ def generate_receiver_data_plots(user_vars, auto_gen = False):
     print("\nGenerating Receiver Data Plot...")
     figure = subplots.make_subplots(
         rows=5,cols=2,shared_xaxes="columns",row_heights=[10,2,1,10,2],
+        specs = [[{},{}] for i in range(5)],vertical_spacing = 0.05,horizontal_spacing=0.05,
         subplot_titles=(
             "Loop Stress Data","Receiver Signal Strength Data","","","","",
             "Receiver Secondary Voltage Data","Chandra Ranging Data"
@@ -41,8 +42,8 @@ def generate_receiver_data_plots(user_vars, auto_gen = False):
     add_loop_stress_plots(user_vars, figure)
     add_reciever_signal_plots(user_vars, figure)
     add_chandra_range_plots(user_vars, figure)
-    format_plot_axes(figure, figure_title, yaxis_titles)
-    write_html_file(user_vars, figure, figure_title, auto_gen)
+    format_plot_axes(user_vars,figure,figure_title,yaxis_titles)
+    write_html_file(user_vars,figure,figure_title,auto_gen)
 
 
 def add_receiver_sec_volt_plots(user_vars,figure):

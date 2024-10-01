@@ -1,6 +1,7 @@
 "Plotting Misc Methods"
 
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 from cxotime import CxoTime
 from components.tlm_request import data_request
 
@@ -27,7 +28,7 @@ def format_times(raw_data,user_vars):
     return formated_times
 
 
-def format_plot_axes(figure,plot_title,yaxis_titles):
+def format_plot_axes(user_vars,figure,plot_title,yaxis_titles):
     """
     Description: Formats plot axies based on string inputs
     Input: Plot <object>, plot_title <str>, yaxis_titles <str>
@@ -37,12 +38,10 @@ def format_plot_axes(figure,plot_title,yaxis_titles):
 
     for yaxis_number, yaxis_label in yaxis_titles.items():
         figure["layout"][f"yaxis{yaxis_number}"]["title"] = yaxis_label
-
         figure.update_layout(
-            {f"xaxis{yaxis_number}": {"matches": "x", "showticklabels": True}}
-        )
+            {f"xaxis{yaxis_number}": {"matches": "x", "showticklabels": True}})
 
-    figure.update_xaxes(gridcolor="rgba(80,80,80,1)",autorange=True)
+    figure.update_xaxes(gridcolor="rgba(80,80,80,1)")
     figure.update_yaxes(gridcolor="rgba(80,80,80,1)",autorange=True)
     figure.update_layout(
         title=plot_title,
@@ -56,6 +55,7 @@ def format_plot_axes(figure,plot_title,yaxis_titles):
         autosize=True,
         showlegend=False,
         hovermode="x unified",
+        xaxis_range=[(user_vars.tp.datetime)-timedelta(days=3),user_vars.tp.datetime]
     )
 
 
