@@ -42,7 +42,7 @@ def generate_status_report(user_vars, auto_gen = False):
     set_dir = make_output_dir(user_vars, auto_gen)
 
     if auto_gen:
-        file_title = "CCDM Status Report (Auto-Gen 14-Day Lookback).txt"
+        file_title = "CCDM Status Report (Auto-Gen 14-Day Lookback)"
     else:
         file_title = (
             f"CCDM Status Report ({user_vars.year_start}{user_vars.doy_start}_"
@@ -56,7 +56,7 @@ def generate_status_report(user_vars, auto_gen = False):
         dbe_detection(user_vars, file)
         file.close()
 
-    print(f"""\nDone! Data written to "{file_title}" in "{set_dir}".""")
+    print(f"""\nDone! Data written to "{file_title}.txt" in "{set_dir}".""")
 
 
 def tlm_corruption_detection(user_vars, file):
