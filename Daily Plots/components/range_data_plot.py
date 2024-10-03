@@ -23,8 +23,9 @@ def add_chandra_range_plots(user_vars,figure,pa_plot=False):
                 add_plot_trace(user_vars,msid,figure,rows,cols)
         else:
             if msid in "CALC_AXAF_RANGE":
-                rows, cols, trace_title = 4, 2, "Chandra Range"
-                add_plot_trace(user_vars,msid,figure,rows,cols,trace_title)
+                yaxis= 8
+                trace_title= "Chandra Range"
+                add_plot_trace(user_vars,msid,figure,yaxis,trace_title)
             else:
-                rows, cols = 5, 2
-                add_plot_trace(user_vars,msid,figure,rows,cols)
+                yaxis= 10
+                add_plot_trace(user_vars,msid,figure,yaxis)

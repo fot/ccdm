@@ -28,7 +28,7 @@ def format_times(raw_data,user_vars):
     return formated_times
 
 
-def format_plot_axes(user_vars,figure,plot_title,yaxis_titles):
+def format_plot_axes(user_vars, figure, plot_title, yaxis_titles):
     """
     Description: Formats plot axies based on string inputs
     Input: Plot <object>, plot_title <str>, yaxis_titles <str>
@@ -38,8 +38,10 @@ def format_plot_axes(user_vars,figure,plot_title,yaxis_titles):
 
     for yaxis_number, yaxis_label in yaxis_titles.items():
         figure["layout"][f"yaxis{yaxis_number}"]["title"] = yaxis_label
-        figure.update_layout(
-            {f"xaxis{yaxis_number}": {"matches": "x", "showticklabels": True}})
+        figure.update_layout({f"xaxis{yaxis_number}": {"matches": "x", "showticklabels": True}})
+
+    # for xaxis in range(1,3):
+    #     figure.update_layout({f"xaxis{xaxis}": {"matches": "x", "showticklabels": True}})
 
     figure.update_xaxes(gridcolor="rgba(80,80,80,1)")
     figure.update_yaxes(gridcolor="rgba(80,80,80,1)",autorange=True)
@@ -55,11 +57,11 @@ def format_plot_axes(user_vars,figure,plot_title,yaxis_titles):
         autosize=True,
         showlegend=False,
         hovermode="x unified",
-        xaxis_range=[(user_vars.tp.datetime)-timedelta(days=3),user_vars.tp.datetime]
+        # xaxis_range=[(user_vars.tp.datetime)-timedelta(days=3),user_vars.tp.datetime]
     )
 
 
-def add_plot_trace(user_vars,msid,figure,rows,cols,trace_title=False):
+def add_plot_trace(user_vars,msid,figure,yaxis,trace_title=False):
     "Add a plot trace per given MSID list and plot location"
     raw_data = data_request(user_vars, msid)
     formatted_times = format_times(raw_data, user_vars)
@@ -73,12 +75,18 @@ def add_plot_trace(user_vars,msid,figure,rows,cols,trace_title=False):
     if trace_title:
         title = trace_title
 
+    if yaxis % 2:
+        xaxis= 1
+    else:
+        xaxis= 2
+
     figure.add_traces(
         go.Scatter(
             x = formatted_times,
             y = y_values,
             mode = "lines",
-            name = title
+            name = title,
+            xaxis = f"x{xaxis}",
+            yaxis = f"y{yaxis}",
         ),
-        rows = rows, cols = cols
     )

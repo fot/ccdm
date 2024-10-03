@@ -35,15 +35,15 @@ def generate_receiver_data_plots(user_vars, auto_gen = False):
             )
 
     yaxis_titles = {
-        1:"kHz",2:"dBm",3:"NLCK/LOCK",4:"NLCK/LOCK",
-        7:"Volts",8:"Range (km)",10:"HIGH/LOW"
-        }
+        1:"kHz", 2:"dBm", 3:"NLCK/LOCK", 4:"NLCK/LOCK",
+        7:"Volts", 8:"Range (km)", 10:"HIGH/LOW"}
+
     add_receiver_sec_volt_plots(user_vars, figure)
     add_loop_stress_plots(user_vars, figure)
     add_reciever_signal_plots(user_vars, figure)
     add_chandra_range_plots(user_vars, figure)
-    format_plot_axes(user_vars,figure,figure_title,yaxis_titles)
-    write_html_file(user_vars,figure,figure_title,auto_gen)
+    format_plot_axes(user_vars, figure, figure_title, yaxis_titles)
+    write_html_file(user_vars, figure, figure_title, auto_gen)
 
 
 def add_receiver_sec_volt_plots(user_vars,figure):
@@ -56,10 +56,10 @@ def add_receiver_sec_volt_plots(user_vars,figure):
     msids = ["CRXAV","CRXBV"]
 
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
-        add_plot_trace(user_vars,msid,figure,rows=4,cols=1)
+        add_plot_trace(user_vars,msid,figure,yaxis= 7)
 
-    figure.add_hline(y = 4.2, line_dash = "dash", line_color = "red")
-    figure.add_hline(y = 3.8, line_dash = "dash", line_color = "red")
+    figure.add_hline(y= 4.2, line_dash= "dash", line_color= "red")
+    figure.add_hline(y= 3.8, line_dash= "dash", line_color= "red")
     figure.update_layout(yaxis_range=[3.7,4.3])
 
 
@@ -75,11 +75,11 @@ def add_loop_stress_plots(user_vars,figure):
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
 
         if msid in ("CRXALS","CRXBLS"):
-            rows, cols = 1, 1
+            yaxis= 1
         else:
-            rows, cols, = 2, 1
+            yaxis= 3
 
-        add_plot_trace(user_vars,msid,figure,rows,cols)
+        add_plot_trace(user_vars,msid,figure,yaxis)
 
 
 def add_reciever_signal_plots(user_vars,figure):
@@ -94,8 +94,8 @@ def add_reciever_signal_plots(user_vars,figure):
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
 
         if msid in ("CRXASIG","CRXBSIG"):
-            rows, cols = 1, 2
+            yaxis= 2
         else:
-            rows, cols = 2, 2
+            yaxis= 4
 
-        add_plot_trace(user_vars,msid,figure,rows,cols)
+        add_plot_trace(user_vars,msid,figure,yaxis)
