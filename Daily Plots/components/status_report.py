@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from tqdm import tqdm
 from cxotime import CxoTime
-from components.misc import make_output_dir
+from components.misc import make_output_dir, format_wk
 from components.tlm_request import data_request
 
 
@@ -247,9 +247,9 @@ def write_obc_error_report(user_vars, file, report_data):
     if report_data:
         write_obc_errors(report_data, file)
     else:
-        file.write("No OBC Errors detected for the selected date/time range \U0001F63B.\n\n")
+        file.write("\n  - No OBC Errors detected \U0001F63B.\n")
 
-    file.write("  ----------END OF OBC ERRORS----------")
+    file.write("\n  ----------END OF OBC ERRORS----------")
     file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
     print(" - Done! Data written to OBC error section.")
 
@@ -271,7 +271,6 @@ def write_obc_errors(report_data, file):
             file.write(f"\nOBC Errors for {doy}:\n")
 
         file.write(f"  - ({time}) Error Type:{error_type}  |  Error:{error}\n")
-    file.write("\n")
 
 
 def format_doy(doy_no_format):
@@ -311,7 +310,7 @@ def get_limit_report_dirs(user_vars):
     date_diff= timedelta(days=(end_date-start_date).days)
 
     for date_range in range(date_diff.days + 1):
-        current_date= start_date + timedelta(date_range)
+        current_date= start_date + timedelta(days= date_range)
         year= current_date.year
         month= current_date.strftime("%b")
         day= current_date.strftime("%d")
@@ -371,13 +370,13 @@ def write_limit_report_file(user_vars, file, report_data):
     line= "-----------------------------"
     file.write(
         f"Detected CCDM limit violations for {user_vars.year_start}:{user_vars.doy_start} "
-        f"thru {user_vars.year_end}:{user_vars.doy_end}\n\n" + line + line + line + "\n")
+        f"thru {user_vars.year_end}:{user_vars.doy_end}\n\n" + line + line + line)
     if report_data:
         write_limit_violations(report_data, file)
     else:
-        file.write("No Limit Violations detected for the selected date/time range \U0001F63B.")
+        file.write("  - No limit violations detected \U0001F63B.\n")
 
-    file.write("  ----------END OF LIMIT VIOLATIONS----------")
+    file.write("\n  ----------END OF LIMIT VIOLATIONS----------")
     file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
     print(""" - Done! Data written to "limit violation section".""")
 
@@ -389,7 +388,7 @@ def write_limit_violations(report_data, file):
     Output: None
     """
     for date, data_dict_list in report_data.items():
-        file.write(f'CCDM limit violations for {date}:\n')
+        file.write(f"\nCCDM limit violations for {date}:\n")
         for data_dict in data_dict_list:
             for date_time, data_list in data_dict.items():
                 for list_item in data_list:
@@ -406,7 +405,6 @@ def write_limit_violations(report_data, file):
                             file.write(
                                 f'  - ({time} EST) MSID "{msid}", was "{error}" with a measured'
                                 f' value of "{state}" with an expected state of "<BLANK>".\n')
-        file.write("\n")
 
 
 def dbe_detection(user_vars, file):
@@ -508,11 +506,10 @@ def write_beat_report_data(data, file):
         submodule= data_point.submodule
         dbe= data_point.dbe
 
-        if doy != previous_doy:
+        if doy != previous_doy or (len(data.dbe_data) == 1):
             file.write(f"\nDBEs for {doy}:\n")
 
         file.write(f"  - ({time}) SSR-{ssr} | submodule: {submodule} | DBEs: {dbe}\n")
-    file.write("\n")
 
 
 def write_beat_report(user_vars, data, file):
@@ -520,14 +517,14 @@ def write_beat_report(user_vars, data, file):
     line= "-----------------------------"
     file.write(
         f"Detected DBEs for {user_vars.year_start}:{user_vars.doy_start} "
-        f"thru {user_vars.year_end}:{user_vars.doy_end}\n\n" + line + line + line)
+        f"thru {user_vars.year_end}:{user_vars.doy_end}\n\n" +line+line+line)
 
     if data.dbe_data:
         write_beat_report_data(data,file)
     else:
-        file.write("\n  - No DBEs detected for the selected date/time range \U0001F63B.\n\n")
+        file.write("\n  - No DBEs detected for the selected date/time range \U0001F63B.\n")
 
-    file.write("  ----------END OF DBE DETECTION----------")
+    file.write("\n  ----------END OF DBE DETECTION----------")
     file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
     print(""" - Done! Data written to "DBE section".""")
 
@@ -542,6 +539,7 @@ def misc_detection(user_vars, file):
 
     vcdu_rollover_detection(user_vars, file)
     scs107_detection(user_vars, file)
+    spurious_cmd_lock_detection(user_vars, file)
 
     file.write("\n  ----------END OF MISC DETECTION----------")
     file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
@@ -598,4 +596,90 @@ def scs107_detection(user_vars, file):
                    f"range and was re-enabled on {end_time}.\n")
     else:
         print("   - No run of SCS 107 detected.")
-        file.write(" - No run of SCS 107 detected.\n")
+        file.write("  - No run of SCS 107 detected.\n")
+
+
+def spurious_cmd_lock_detection(user_vars, file):
+    "detect spurious locks outside expected comm time"
+    print(" - Spurious Lock Detection...")
+    dsn_comm_times= parse_dsn_comms(user_vars)
+    spurious_cmd_locks= get_spurious_cmd_locks(user_vars, dsn_comm_times)
+
+    if spurious_cmd_locks:
+        for receiver, date_list in spurious_cmd_locks.items():
+            for date in date_list:
+                date_time= date.strftime("%Y:%j:%H:%M:%S.%f")
+                # if receiver:
+                file.write(f"  - Spurious Command Lock found on Receiver-{receiver} "
+                        f"at {date_time}z.\n")
+    else:
+        file.write(f"  - No spurious command locks found.\n")
+
+
+def parse_dsn_comms(user_vars):
+    "Parse the inputted file directory of DSN comms to look for Chandra comms."
+    dsn_comm_times, dsn_comm_dirs, date_range= ([] for i in range(3))
+    dsn_comm_base_dirs= "/home/mission/MissionPlanning/DSN/DSNweek/"
+    date_diff= user_vars.tp.datetime - user_vars.ts.datetime
+
+    # Build file list to parse.
+    for wk in range(1,53):
+        dsn_comm_dirs.append(
+            dsn_comm_base_dirs + f"{user_vars.year_start}_wk{format_wk(wk)}_all.txt")
+
+    for value in range(date_diff.days + 3):
+        date_value= (timedelta(days= -1) + user_vars.ts + value).strftime("%j")
+        date_range.append(date_value)
+
+    for dsn_comm in dsn_comm_dirs:
+        try:
+            with open(dsn_comm, "r", encoding="utf-8") as comm_file:
+                for line in comm_file:
+                    if "CHDR" in line:
+                        split_line = line.split()
+                        boa_time= datetime.strptime(split_line[3], "%Y:%j:%H:%M:%S.%f")
+                        eoa_time= datetime.strptime(split_line[5], "%Y:%j:%H:%M:%S.%f")
+                        if boa_time.strftime("%j") in date_range:
+                            per_pass = [boa_time - timedelta(hours=0.75),
+                                        eoa_time + timedelta(hours=0.75)]
+                            dsn_comm_times.append(per_pass)
+        except FileNotFoundError:
+            print(f"""   - File: "{dsn_comm}" not found in base directory, skipping file...""")
+
+    return dsn_comm_times
+
+
+def get_spurious_cmd_locks(user_vars, dsn_comm_times):
+    "from a know list of comm times, find spurious cmd locks"
+    default_data_rate= user_vars.data_source # save user set rate
+    user_vars.data_source= "SKA Abreviated" # force data rate
+    spurious_cmd_locks= {}
+
+    for receiver in ("A","B"):
+        print(f"   - Checking for Receiver-{receiver} lock...")
+
+        raw_data= data_request(user_vars, f"CCMDLK{receiver}")
+        locked_times= []
+
+        # Purge raw data into dates when receiver was locked.
+        for time, value in zip(raw_data.times, raw_data.vals):
+            if value== "LOCK":
+                locked_times.append(CxoTime(time).datetime)
+
+        # Check if times when locked was outside of expected comm
+        for locked_time in locked_times:
+            value_out_of_comm= []
+
+            for expected_comm in dsn_comm_times:
+                if not expected_comm[0] < locked_time < expected_comm[1]:
+                    value_out_of_comm.append(True)
+                else:
+                    value_out_of_comm.append(False)
+
+            if all(i for i in value_out_of_comm):
+                spurious_cmd_locks.setdefault(f"{receiver}",[]).append(locked_time)
+                print(f"   - Spurious Command Lock on Receiver-{receiver} "
+                      f"""found at "{locked_time.strftime("%Y:%j:%H:%M:%S.%f")}z".""")
+    user_vars.data_source= default_data_rate # return back to user set
+
+    return spurious_cmd_locks
