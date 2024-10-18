@@ -15,6 +15,16 @@ def format_doy(doy_no_format):
     return doy_formatted
 
 
+def format_wk(wk_no_format):
+    "Format the timetuple into a 2 digit string"
+    wk_formatted = ""
+    if len(str(wk_no_format)) == 2:
+        wk_formatted = wk_no_format
+    elif len(str(wk_no_format)) == 1:
+        wk_formatted = f"0{wk_no_format}"
+    return wk_formatted
+
+
 def make_output_dir(user_vars, auto_gen = False):
     "Generates the output directory"
     base_dir = "/share/FOT/engineering/ccdm/Tools/Daily Plots"
