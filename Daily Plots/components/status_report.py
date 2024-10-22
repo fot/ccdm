@@ -34,6 +34,13 @@ class OBCErrorDataPoint:
     error: None
 
 
+@dataclasses.dataclass
+class SCS107DataPoint:
+    "Data class for SCS107 runs"
+    start_time: None
+    end_time: None
+
+
 def generate_status_report(user_vars, auto_gen= False):
     "write the status report file"
     print(" - Generating CCDM status report .txt file...")
@@ -212,11 +219,11 @@ def parse_obc_report(file_dir):
     Description: Parse OBC error report
     """
     data_list= []
-    with open(file_dir, 'r', encoding="utf-8") as obc_error:
-        for index, (line) in enumerate(obc_error):
-            if index in it.chain(range(6,38), range(45,77)): # Only parse error lines 1-32 & 33-64
-                parsed= line.split()
-                if parsed[1] != "NONE":
+    with open(file_dir, 'r', encoding="utf-8") as obc_error_log:
+        for line in obc_error_log:
+            parsed= line.split()
+            try:
+                if parsed[0].isnumeric() and parsed[1] != 'NONE':
                     data_point= OBCErrorDataPoint(None,None,None,None)
                     full_date= datetime.strptime(parsed[1],"%Y%j:%H%M%S")
                     data_point.doy= full_date.strftime("%Y:%j")
@@ -228,6 +235,8 @@ def parse_obc_report(file_dir):
                         error= f"{parsed[8]}"
                     data_point.error= error
                     data_list.append(data_point)
+            except IndexError:
+                pass
 
     return data_list if data_list else None
 
@@ -374,7 +383,7 @@ def write_limit_report_file(user_vars, file, report_data):
     if report_data:
         write_limit_violations(report_data, file)
     else:
-        file.write("  - No limit violations detected \U0001F63B.\n")
+        file.write("\n  - No limit violations detected \U0001F63B.\n")
 
     file.write("\n  ----------END OF LIMIT VIOLATIONS----------")
     file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
@@ -552,51 +561,73 @@ def vcdu_rollover_detection(user_vars, file):
     default_data_rate= user_vars.data_source # save user set rate
     user_vars.data_source= "SKA High Rate" # force data rate
     vcdu_data= data_request(user_vars, "CCSDSVCD")
-    user_vars.data_source= default_data_rate # return back to user set
 
-    # Parse the rollover date
+    # Parse the rollover data
+    vcdu_rollover_dates= []
     for index, (value, time) in enumerate(zip(vcdu_data.vals, vcdu_data.times)):
-        if (value < vcdu_data.vals[index - 1]) and (index > 0):
-            vcdu_rollover_date= f"{CxoTime(time).yday}"
-            break
-        vcdu_rollover_date= None
+        if (value < vcdu_data.vals[index - 1]) and (value < 5):
+            vcdu_rollover_dates.append(f"{CxoTime(time).yday}")
 
-    if vcdu_rollover_date:
-        print(f"   - Found a VCDU rollover on {vcdu_rollover_date}.")
-        file.write(f"  - A VCDU rollover was detected on {vcdu_rollover_date}\n")
+    if vcdu_rollover_dates:
+        for rollover in vcdu_rollover_dates:
+            print(f"   - Found a VCDU rollover on {rollover}.")
+            file.write(f"  - A VCDU rollover was detected on {rollover}\n")
     else:
         print("   - No VCDU rollover detected.")
         file.write("  - No VCDU rollover deteccted.\n")
 
+    # return back to user set
+    user_vars.data_source= default_data_rate
+
 
 def scs107_detection(user_vars, file):
-    "Detect a run of SCS107"
+    "Detect a run of SCS107, then write it to console and report file"
     print(" - SCS107 Detection...")
-    start_time, end_time = None, None
+    data_list= []
     default_data_rate= user_vars.data_source # save user set rate
     user_vars.data_source= "SKA High Rate" # force data rate
     data= data_request(user_vars, "COSCS107S")
-    user_vars.data_source= default_data_rate # return back to user set
+    data_point= SCS107DataPoint(None, None)
 
-    for index, (data_point, time) in enumerate(zip(data.vals, data.times)):
-        if (data_point in ("DISA", "ACT")) and (data.vals[index - 1]== "INAC") and (index > 0):
-            start_time= CxoTime(time).yday
-        if (data_point== "INAC") and (data.vals[index - 1]== "DISA") and (index > 0):
-            end_time= CxoTime(time).yday
+    for index, (value, time) in enumerate(zip(data.vals, data.times)):
 
-    if (start_time is not None) and (end_time is not None):
-        print(f"   - Found a run of SCS 107 on {start_time} and was re-enabled on {end_time}.")
-        file.write(f"  - SCS 107 ran on {start_time} and was re-enabled on {end_time}.\n")
-    elif (start_time is not None) and (end_time is None):
-        print(f"   - Found a run of SCS 107 on {start_time}.")
-        file.write(f"  - SCS 107 ran on {start_time} and hasn't been re-enabled yet.\n")
-    elif (start_time is None) and (end_time is not None):
-        print("   - Found a previous run of SCS 107 out of input range.")
-        file.write(f"  - SCS 107 prevously ran on a time outside of input "
-                   f"range and was re-enabled on {end_time}.\n")
+        # Populate data_point as SCS107 changes state
+        if (value in ("DISA", "ACT")) and (data.vals[index - 1]== "INAC") and (index > 0):
+            data_point.start_time= CxoTime(time).yday
+        elif (value== "INAC") and (data.vals[index - 1]== "DISA") and (index > 0):
+            data_point.end_time= CxoTime(time).yday
+
+        # Only append data list if data object fills, then make new data point.
+        # Also if at last sample w/ partially filled data_point.
+        elif (data_point.start_time is not None) and (data_point.end_time is not None):
+            data_list.append(data_point)
+            data_point= SCS107DataPoint(None, None)
+        elif (index + 1 == len(data.vals) and
+              ((data_point.start_time is not None) or (data_point.end_time is not None))):
+            data_list.append(data_point)
+
+    # Write SCS107 runs found
+    if data_list:
+        for data_item in data_list:
+            if (data_item.start_time is not None) and (data_item.end_time is not None):
+                print(f"   - Found a run of SCS107 on {data_item.start_time} "
+                      f"and was re-enabled on {data_item.end_time}.")
+                file.write(f"  - SCS107 ran on {data_item.start_time} "
+                           f"and was re-enabled on {data_item.end_time}.\n")
+            elif (data_item.start_time is not None) and (data_item.end_time is None):
+                print(f"   - Found a run of SCS107 on {data_item.start_time}.")
+                file.write(f"  - SCS107 ran on {data_item.start_time} "
+                           "and hasn't been re-enabled yet.\n")
+            elif (data_item.start_time is None) and (data_item.end_time is not None):
+                print("   - Found a previous run of SCS 107 out of input range.")
+                file.write(f"  - SCS107 prevously ran on a time outside of input "
+                        f"range and was re-enabled on {data_item.end_time}.\n")
     else:
-        print("   - No run of SCS 107 detected.")
-        file.write("  - No run of SCS 107 detected.\n")
+        print("   - No run of SCS107 detected.")
+        file.write("  - No run of SCS107 detected.\n")
+
+    # return back to user set
+    user_vars.data_source= default_data_rate
 
 
 def spurious_cmd_lock_detection(user_vars, file):
@@ -613,7 +644,7 @@ def spurious_cmd_lock_detection(user_vars, file):
                 file.write(f"  - Spurious Command Lock found on Receiver-{receiver} "
                         f"at {date_time}z.\n")
     else:
-        file.write(f"  - No spurious command locks found.\n")
+        file.write("  - No spurious command locks found.\n")
 
 
 def parse_dsn_comms(user_vars):
@@ -637,11 +668,11 @@ def parse_dsn_comms(user_vars):
                 for line in comm_file:
                     if "CHDR" in line:
                         split_line = line.split()
-                        boa_time= datetime.strptime(split_line[3], "%Y:%j:%H:%M:%S.%f")
-                        eoa_time= datetime.strptime(split_line[5], "%Y:%j:%H:%M:%S.%f")
-                        if boa_time.strftime("%j") in date_range:
-                            per_pass = [boa_time - timedelta(hours=0.75),
-                                        eoa_time + timedelta(hours=0.75)]
+                        bot_time= datetime.strptime(split_line[3], "%Y:%j:%H:%M:%S.%f")
+                        eot_time= datetime.strptime(split_line[5], "%Y:%j:%H:%M:%S.%f")
+                        if bot_time.strftime("%j") in date_range:
+                            per_pass = [bot_time - timedelta(hours=0.75),
+                                        eot_time + timedelta(hours=0.75)]
                             dsn_comm_times.append(per_pass)
         except FileNotFoundError:
             print(f"""   - File: "{dsn_comm}" not found in base directory, skipping file...""")
@@ -671,10 +702,10 @@ def get_spurious_cmd_locks(user_vars, dsn_comm_times):
             value_out_of_comm= []
 
             for expected_comm in dsn_comm_times:
-                if not expected_comm[0] < locked_time < expected_comm[1]:
-                    value_out_of_comm.append(True)
-                else:
+                if expected_comm[0] < locked_time < expected_comm[1]:
                     value_out_of_comm.append(False)
+                else:
+                    value_out_of_comm.append(True)
 
             if all(i for i in value_out_of_comm):
                 spurious_cmd_locks.setdefault(f"{receiver}",[]).append(locked_time)
