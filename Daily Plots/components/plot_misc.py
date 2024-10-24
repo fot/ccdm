@@ -1,7 +1,7 @@
 "Plotting Misc Methods"
 
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from cxotime import CxoTime
 from components.tlm_request import data_request
 
@@ -55,7 +55,7 @@ def format_plot_axes(user_vars,figure,plot_title,yaxis_titles):
         autosize=True,
         showlegend=False,
         hovermode="x unified",
-        xaxis_range=[(user_vars.tp.datetime)-timedelta(days=3),user_vars.tp.datetime]
+        xaxis_range=[(datetime.now(timezone.utc))-timedelta(days=5), datetime.now(timezone.utc)]
     )
 
 
