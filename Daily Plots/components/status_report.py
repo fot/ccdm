@@ -587,7 +587,7 @@ def scs107_detection(user_vars, file):
     default_data_rate= user_vars.data_source # save user set rate
     user_vars.data_source= "SKA High Rate" # force data rate
     data= data_request(user_vars, "COSCS107S")
-    data_point= SCS107DataPoint(None, None)
+    data_point= SCS107DataPoint(None, None) # Initial data_point
 
     for index, (value, time) in enumerate(zip(data.vals, data.times)):
 
@@ -597,14 +597,18 @@ def scs107_detection(user_vars, file):
         elif (value== "INAC") and (data.vals[index - 1]== "DISA") and (index > 0):
             data_point.end_time= CxoTime(time).yday
 
-        # Only append data list if data object fills, then make new data point.
-        # Also if at last sample w/ partially filled data_point.
-        elif (data_point.start_time is not None) and (data_point.end_time is not None):
-            data_list.append(data_point)
-            data_point= SCS107DataPoint(None, None)
+        # Append data_list if at last sample w/ partially filled data_point.
         elif (index + 1 == len(data.vals) and
               ((data_point.start_time is not None) or (data_point.end_time is not None))):
             data_list.append(data_point)
+        # Append data_list if data_point fills, then make a new empty data_point.
+        elif (data_point.start_time is not None) and (data_point.end_time is not None):
+            data_list.append(data_point)
+            data_point= SCS107DataPoint(None, None)
+        # Append data_list if an end_time is found before a start_time, make an empty data_point.
+        elif (data_point.start_time is None) and (data_point.end_time is not None):
+            data_list.append(data_point)
+            data_point= SCS107DataPoint(None, None)
 
     # Write SCS107 runs found
     if data_list:
