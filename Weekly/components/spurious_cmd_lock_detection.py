@@ -13,15 +13,14 @@ from components.misc import format_wk
 def parse_dsn_comms(user_vars):
     "Parse the inputted file directory of DSN comms to look for Chandra comms."
     print(" - Parsing DSN Comm files...")
-    dsn_comm_times, dsn_comm_dirs = ([] for i in range(2))
-    dsn_comm_base_dirs = "/home/mission/MissionPlanning/DSN/DSNweek/"
-    date_range = []
+    date_range, dsn_comm_times, dsn_comm_dirs = ([] for i in range(3))
     date_diff = user_vars.tp.datetime - user_vars.ts.datetime
 
     # Build file list to parse.
     for wk in range(1,53):
         dsn_comm_dirs.append(
-            dsn_comm_base_dirs + f"{user_vars.start_year}_wk{format_wk(wk)}_all.txt")
+            "/home/mission/MissionPlanning/DSN/DSNweek/"
+            f"{user_vars.start_year}_wk{format_wk(wk)}_all.txt")
 
     for value in range(date_diff.days + 3):
         date_value = (timedelta(-1) + user_vars.ts + value).strftime("%j")
