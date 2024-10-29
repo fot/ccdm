@@ -14,8 +14,8 @@ from components.tlm_request import data_request
 class BEATDataPoint:
     "Data class for a BEAT report data point."
     ssr: None
-    doy: None
-    time: None
+    start_date: None
+    end_date: None
     submodule: None
     dbe: None
 
@@ -443,7 +443,7 @@ def parse_beat_report(fname):
     """
     Description: Parse beat reports
     """
-    cur_state, data_list = 'FIND_SSR', []
+    cur_state, ssr, data_list = 'FIND_SSR', None, []
 
     with open(fname, 'r', encoding="utf-8") as beat_report:
         for line in beat_report:
@@ -458,10 +458,9 @@ def parse_beat_report(fname):
             elif cur_state== 'REC_SUBMOD':
                 if line[0].isdigit():
                     parsed= line.split()
-                    date= datetime.strptime(f"{parsed[4]}", "%Y%j.%H%M%S")
                     data_point.ssr= ssr
-                    data_point.time= f"""{date.strftime("%H:%M:%S")}z"""
-                    data_point.doy=  date.strftime("%Y:%j")
+                    data_point.start_date= datetime.strptime(f"{parsed[4]}", "%Y%j.%H%M%S")
+                    data_point.end_date= datetime.strptime(f"{parsed[5]}", "%Y%j.%H%M%S")
                     data_point.submodule= int(parsed[0])
                     data_point.dbe= int(parsed[3])
                     data_list.append(data_point)
@@ -508,17 +507,16 @@ def get_beat_report_dirs(user_vars, data):
 def write_beat_report_data(data, file):
     "Write data parsed from BEAT reports into output file."
     for index, (data_point) in enumerate(data.dbe_data):
-        ssr= data_point.ssr
-        doy= data_point.doy
-        previous_doy= data.dbe_data[index - 1].doy
-        time= data_point.time
-        submodule= data_point.submodule
-        dbe= data_point.dbe
+        doy= data_point.start_date.strftime("%Y:%j")
+        previous_doy= data.dbe_data[index - 1].start_date.strftime("%Y:%j")
+        start_time= f"""{data_point.start_date.strftime("%H:%M:%S")}z"""
+        end_time= f"""{data_point.end_date.strftime("%H:%M:%S")}z"""
 
         if doy != previous_doy or (len(data.dbe_data) == 1):
             file.write(f"\nDBEs for {doy}:\n")
 
-        file.write(f"  - ({time}) SSR-{ssr} | submodule: {submodule} | DBEs: {dbe}\n")
+        file.write(f"  - ({start_time} thru {end_time}) SSR-{data_point.ssr} | "
+                   f"submodule: {data_point.submodule} | DBEs: {data_point.dbe}\n")
 
 
 def write_beat_report(user_vars, data, file):
