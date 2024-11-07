@@ -6,6 +6,7 @@ Daily Plots Tool (Manual Run) v1.5
 
 from os import system
 import time
+from datetime import datetime, timezone
 from cxotime import CxoTime
 from components.misc import user_menu, cleanup
 from components.receiver_data_plot import generate_receiver_data_plots
@@ -58,6 +59,10 @@ def get_doy_start():
 def get_year_end(self):
     "Takes user input for end year and checks validity, then returns"
     while True:
+        if self.year_start == str(datetime.now(timezone.utc).year):
+            end_year= self.year_start
+            break
+
         end_year = input("Enter the END year: XXXX ")
         if (len(str(end_year)) == 4) and (1999 <= int(end_year) <= 2030):
             if end_year < self.year_start:
