@@ -17,15 +17,16 @@ class UserVariables:
     "User inputs object. Used to store input values."
 
     def __init__(self):
-        self.start_date = datetime.now(timezone.utc) - timedelta(14)
-        self.end_date = datetime.now(timezone.utc)
-        self.year_start = str(self.start_date.year)
-        self.doy_start = str(self.start_date.timetuple().tm_yday)
-        self.year_end = str(self.end_date.year)
-        self.doy_end = str(self.end_date.timetuple().tm_yday)
-        self.ts = CxoTime(self.year_start+":"+self.doy_start+":00:00:00")
-        self.tp = CxoTime(self.year_end+":"+self.doy_end+":23:59:59.999")
-        self.data_source = "SKA Abreviated"
+        self.ssr_prime= ["B","2024:213:05:26:34"]
+        self.start_date= datetime.now(timezone.utc) - timedelta(14)
+        self.end_date= datetime.now(timezone.utc)
+        self.year_start= str(self.start_date.year)
+        self.doy_start= str(self.start_date.timetuple().tm_yday)
+        self.year_end= str(self.end_date.year)
+        self.doy_end= str(self.end_date.timetuple().tm_yday)
+        self.ts= CxoTime(self.year_start+":"+self.doy_start+":00:00:00")
+        self.tp= CxoTime(self.year_end+":"+self.doy_end+":23:59:59.999")
+        self.data_source= "SKA Abreviated"
 
 
 def main():
