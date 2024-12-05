@@ -46,7 +46,6 @@ def format_plot_axes(plot, user_vars):
         plot_bgcolor="rgba(0,0,0,1)",
         paper_bgcolor="rgba(0,0,0,1)",
         autosize=True,
-        hoversubplots = "axis",
         hovermode = "x unified",
     )
 
