@@ -55,15 +55,19 @@ def parse_limit_report(file_dir):
     data_dict = {}
     filtered_msids = ["CTUDWLMD"]
 
-    with open(file_dir, 'r', encoding="utf-8") as limit_file:
-        for line in limit_file:
-            parsed = line.split()
-            msid, status = parsed[2], parsed[3]
-            if ((msid.startswith("C") or msid.startswith("PA_")) and
-                (status != 'NOMINAL') and (msid not in filtered_msids)
-                ):
-                data_dict.setdefault(
-                    datetime.strptime(parsed[0],"%Y%j.%H%M%S"),[]).append(parsed[1:])
+    try:
+        with open(file_dir, 'r', encoding="utf-8") as limit_file:
+            for line in limit_file:
+                parsed = line.split()
+                msid, status = parsed[2], parsed[3]
+                if ((msid.startswith("C") or msid.startswith("PA_")) and
+                    (status != 'NOMINAL') and (msid not in filtered_msids)
+                    ):
+                    data_dict.setdefault(
+                        datetime.strptime(parsed[0],"%Y%j.%H%M%S"),[]).append(parsed[1:])
+    except FileNotFoundError:
+            print(f"""   - File: "{file_dir}" not found, skipping file...""")
+
     return data_dict
 
 
