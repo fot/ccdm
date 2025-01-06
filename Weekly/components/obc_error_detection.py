@@ -61,17 +61,17 @@ def parse_obc_report(file_dir):
     data_dict = {}
     with open(file_dir, 'r', encoding="utf-8") as obc_error:
         for index, (line) in enumerate(obc_error):
-            if index in it.chain(range(6,38), range(45,77)): # Only parse error lines 1-32 & 33-64
+            if index in it.chain(range(6,38), range(45,77)):
                 parsed = line.split()
                 try:
                     date = datetime.strptime(parsed[1],"%Y%j:%H%M%S")
                     error_type = parsed[7]
                     try:
                         error = f"{parsed[8]} {parsed[9]} {parsed[10]} {parsed[11]}"
-                    except BaseException:
+                    except IndexError:
                         error = f"{parsed[8]}"
                     data_dict.setdefault(date,[]).append({f"{error_type}":f"{error}"})
-                except BaseException:
+                except ValueError:
                     pass
     return data_dict
 
