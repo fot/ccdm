@@ -3,7 +3,7 @@ v1.6 Change Notes:
  - Improves SSR rollover detection
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import urllib.request
 import json
 from pathlib import Path
@@ -39,12 +39,10 @@ class UserVariables:
     "User defined variables"
     def __init__(self):
         system('clear')
-        self.get_start_year()
-        self.get_end_year()
+        self.get_start_date()
+        self.get_end_date()
         self.get_dir_path()
         self.get_ssr_prime()
-        self.get_start_doy()
-        self.get_end_doy()
         self.get_times()
         self.get_major_events()
         self.get_cdme_performance_events()
@@ -53,15 +51,33 @@ class UserVariables:
         self.get_tlm_corruption_events()
         self.get_cdme_misc_comments()
 
-    def get_start_year(self):
-        "Constant value for each year, don't want user to have to input this every week"
-        self.start_year = 2024
-        print(f"START year is set at: {self.start_year}")
+    def get_start_date(self):
+        "User input for start date"
+        while True:
+            start_date_input= input('Enter the START date YYYY:DOY: ')
+            start_year, start_doy= start_date_input[:4], start_date_input[-3:]
+            if ((len(str(start_date_input)) == 8) and
+                (2000 <= int(start_year) <= int(datetime.now(timezone.utc).year)) and
+                (1 <= int(start_doy) <= 366)):
+                break
+            print(f'Input "{start_date_input}" was invalid, try again.')
+        self.doy_start= start_doy
+        self.start_year= start_year
+        self.ts = CxoTime(f"{start_year}:{start_doy}:00:00:00")
 
-    def get_end_year(self):
-        "Constant value for each year, don't want user to have to input this every week"
-        self.end_year = 2024
-        print(f"END year is set at: {self.end_year}")
+    def get_end_date(self):
+        "User input for end date"
+        while True:
+            end_date_input= input('Enter the END date YYYY:DOY: ')
+            end_year, end_doy= end_date_input[:4], end_date_input[-3:]
+            if ((len(str(end_date_input)) == 8) and
+                (2000 <= int(end_year) <= int(datetime.now(timezone.utc).year)) and
+                (1 <= int(end_doy) <= 366)):
+                break
+            print(f'Input "{end_date_input}" was invalid, try again.')
+        self.doy_end= end_doy
+        self.end_year= end_year
+        self.tp = CxoTime(f"{end_year}:{end_doy}:23:59:59.999")
 
     def get_dir_path(self):
         "User input for set directory"
@@ -72,27 +88,6 @@ class UserVariables:
         "User input for SSR prime"
         self.ssr_prime = ["B","2024:213:05:26:34"]
         print(f"Prime SSR is set at: {self.ssr_prime}")
-
-    def get_start_doy(self):
-        "User input for start doy"
-        while True:
-            doy_input = input('Enter the START day: XXX ')
-            if (len(str(doy_input)) == 3) and (1 <= int(doy_input) <= 366):
-                break
-            print(f"{doy_input} was an invalid input, please try again")
-        self.doy_start = doy_input
-
-    def get_end_doy(self):
-        "User input for end doy"
-        while True:
-            doy_input = input('Enter the END day: XXX ')
-            if (int(doy_input) - 6) != int(self.doy_start):
-                print(f"{doy_input} was not 7 days from {self.doy_start}")
-            elif (len(str(doy_input)) == 3 and (1 <= int(doy_input) <= 366)):
-                break
-            else:
-                print(f"{doy_input} was an invalid input, please try again\n")
-        self.doy_end = doy_input
 
     def get_times(self):
         "Generates CxoTime objects from user inputs"
@@ -642,21 +637,26 @@ def get_ssr_beat_reports(user_vars,data):
 
     print("Generating SSR beat report data...")
 
-    start = DateTime(f"{user_vars.start_year}:001")
-    end = DateTime(f"{user_vars.start_year}:{user_vars.doy_end}")
+    # start = DateTime(f"{user_vars.start_year}:001")
+    # end = DateTime(f"{user_vars.start_year}:{user_vars.doy_end}")
+
+    start= user_vars.ts
+    end= user_vars.tp
+    diff= end.datetime - start.datetime
+
     root_folder = "/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/SSR_Short_Reports/"
     dir_path = Path(root_folder + "/" + str(user_vars.start_year))
     full_file_list_path = list(x for x in dir_path.rglob('BEAT*.*'))
     if user_vars.start_year != user_vars.end_year:
-        dir_path = Path(root_folder + "/" +  user_vars.end_year)
+        dir_path = Path(f"{root_folder}/{user_vars.end_year}")
         full_file_list_path += list(x for x in dir_path.rglob('BEAT*.*'))
     full_file_list =list(str(x) for x in full_file_list_path)
 
     file_list = []
-    for day in range(int(end-start)+1): #
+    for day in range(diff.days + 1): #
         cur_day = start + day
-        cur_year_str = cur_day.year_doy[0:4]
-        cur_day_str = cur_day.year_doy[-3:]   
+        cur_year_str = cur_day.yday[0:4]
+        cur_day_str = cur_day.yday[5:8]
         matching = [s for s in full_file_list if f"BEAT-{cur_year_str}{cur_day_str}" in s]
         file_list += matching
 

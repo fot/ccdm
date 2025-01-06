@@ -17,10 +17,12 @@ def parse_dsn_comms(user_vars):
     date_diff = user_vars.tp.datetime - user_vars.ts.datetime
 
     # Build file list to parse.
-    for wk in range(1,53):
+    for user_date in (user_vars.ts, user_vars.tp):
+        week_of_year= user_date.datetime.isocalendar().week
+        year= user_date.datetime.isocalendar().year
         dsn_comm_dirs.append(
             "/home/mission/MissionPlanning/DSN/DSNweek/"
-            f"{user_vars.start_year}_wk{format_wk(wk)}_all.txt")
+            f"{year}_wk{format_wk(week_of_year)}_all.txt")
 
     for value in range(date_diff.days + 3):
         date_value = (timedelta(-1) + user_vars.ts + value).strftime("%j")
