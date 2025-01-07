@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from tqdm import tqdm
 from cxotime import CxoTime
-from components.misc import make_output_dir, format_wk
+from components.misc import make_output_dir, format_wk, format_doy
 from components.tlm_request import data_request
 
 
@@ -138,8 +138,8 @@ def write_corr_report(user_vars, file, corrupted_values, msids):
 
     file.write(
         "Detected corrupted telemetry data points for "
-        f"{user_vars.year_start}:{user_vars.doy_start} "
-        f"thru {user_vars.year_end}:{user_vars.doy_end}\n" +
+        f"{user_vars.year_start}:{format_doy(user_vars.doy_start)} "
+        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n" +
         "\n" + line + line + line + "\n"
     )
     file.write("MSID(s) monitored (Bound)\n")
@@ -261,8 +261,9 @@ def write_obc_error_report(user_vars, file, report_data):
     """
     line= "-----------------------------"
     file.write(
-        f"Detected OBC Errors for {user_vars.year_start}:{user_vars.doy_start} thru "
-        f"{user_vars.year_end}:{user_vars.doy_end}\n" +
+        "Detected OBC Errors for "
+        f"{user_vars.year_start}:{format_doy(user_vars.doy_start)} thru "
+        f"{user_vars.year_end}:{format_doy(user_vars.doy_end)}\n" +
         "\n" + line + line + line)
 
     if report_data:
@@ -292,17 +293,6 @@ def write_obc_errors(report_data, file):
             file.write(f"\nOBC Errors for {doy}:\n")
 
         file.write(f"  - ({time}) Error Type:{error_type}  |  Error:{error}\n")
-
-
-def format_doy(doy_no_format):
-    "Format the timetuple into a 3 digit string"
-    if len(doy_no_format)== 3:
-        doy_formatted= doy_no_format
-    elif len(doy_no_format)== 2:
-        doy_formatted= f"0{doy_no_format}"
-    elif len(doy_no_format)== 1:
-        doy_formatted= f"00{doy_no_format}"
-    return doy_formatted
 
 
 def limit_violation_detection(user_vars, file):
@@ -390,8 +380,9 @@ def write_limit_report_file(user_vars, file, report_data):
     """
     line= "-----------------------------"
     file.write(
-        f"Detected CCDM limit violations for {user_vars.year_start}:{user_vars.doy_start} "
-        f"thru {user_vars.year_end}:{user_vars.doy_end}\n\n" + line + line + line)
+        "Detected CCDM limit violations for "
+        f"{user_vars.year_start}:{format_doy(user_vars.doy_start)} "
+        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" + line + line + line)
     if report_data:
         write_limit_violations(report_data, file)
     else:
@@ -535,8 +526,8 @@ def write_beat_report(user_vars, data, file):
     "Write formatting for BEAT reports into output file."
     line= "-----------------------------"
     file.write(
-        f"Detected DBEs for {user_vars.year_start}:{user_vars.doy_start} "
-        f"thru {user_vars.year_end}:{user_vars.doy_end}\n\n" +line+line+line)
+        f"Detected DBEs for {user_vars.year_start}:{format_doy(user_vars.doy_start)} "
+        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" +line+line+line)
 
     if data.dbe_data:
         write_beat_report_data(data,file)
@@ -553,8 +544,8 @@ def misc_detection(user_vars, file):
     print("\nMisc Detection Items...")
     line= "-----------------------------"
     file.write(
-        f"Misc Detected Items for {user_vars.year_start}:{user_vars.doy_start} "
-        f"thru {user_vars.year_end}:{user_vars.doy_end}\n\n" + line + line + line + "\n")
+        f"Misc Detected Items for {user_vars.year_start}:{format_doy(user_vars.doy_start)} "
+        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" + line+line+line + "\n")
 
     vcdu_rollover_detection(user_vars, file)
     spurious_cmd_lock_detection(user_vars, file)
@@ -669,10 +660,12 @@ def parse_dsn_comms(user_vars):
     date_diff= user_vars.tp.datetime - user_vars.ts.datetime
 
     # Build file list to parse.
-    for wk in range(1,53):
-        dsn_comm_dirs.append(
-            "/home/mission/MissionPlanning/DSN/DSNweek/"
-            f"{user_vars.year_start}_wk{format_wk(wk)}_all.txt")
+    for year in (user_vars.year_start, user_vars.year_end):
+        for wk in range(1,53):
+            file_path= ("/home/mission/MissionPlanning/DSN/DSNweek/"
+                        f"{year}_wk{format_wk(wk)}_all.txt")
+            if file_path not in dsn_comm_dirs:
+                dsn_comm_dirs.append(file_path)
 
     for value in range(date_diff.days + 3):
         date_value= (timedelta(days= -1) + user_vars.ts + value).strftime("%j")
@@ -806,6 +799,7 @@ def ssr_rollover_detection(user_vars, file):
     "ssr rollover detection"
     print(" - SSR Rollover Detection...")
     ssr_rollover_data = get_ssr_rollover_data(user_vars)
+    response= "No SSR rollover detected."
 
     # Write Data to report file
     if user_vars.ssr_prime[0] == "A":
@@ -826,11 +820,11 @@ def ssr_rollover_detection(user_vars, file):
                 response= (f"Found a previous SSR Rollover from SSR-{user_vars.ssr_prime[0]} "
                            f"to SSR-{backup} outside of input date/time range, but "
                            f"SSR Recovery occured on {data_item.backup_to_prime}.")
+            print(f"   - {response}")
+            file.write(f"  - {response}\n")
     else:
-        response= "No SSR rollover detected."
-
-    print(f"   - {response}")
-    file.write(f"  - {response}\n")
+        print(f"   - {response}")
+        file.write(f"  - {response}\n")
 
 
 def get_ssr_rollover_data(user_vars):
