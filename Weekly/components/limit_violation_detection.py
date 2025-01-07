@@ -66,7 +66,7 @@ def parse_limit_report(file_dir):
                     data_dict.setdefault(
                         datetime.strptime(parsed[0],"%Y%j.%H%M%S"),[]).append(parsed[1:])
     except FileNotFoundError:
-            print(f"""   - File: "{file_dir}" not found, skipping file...""")
+        print(f"""   - File: "{file_dir}" not found, skipping file...""")
 
     return data_dict
 

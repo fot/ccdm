@@ -24,6 +24,15 @@ def format_wk(wk_no_format):
         wk_formatted = f"0{wk_no_format}"
     return wk_formatted
 
+def format_doy(doy_no_format):
+    "Format the timetuple into a 3 digit string"
+    if len(doy_no_format) == 3:
+        doy_formatted = doy_no_format
+    elif len(doy_no_format) == 2:
+        doy_formatted = f"0{doy_no_format}"
+    elif len(doy_no_format) == 1:
+        doy_formatted = f"00{doy_no_format}"
+    return doy_formatted
 
 def make_output_dir(user_vars, auto_gen = False):
     "Generates the output directory"
