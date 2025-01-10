@@ -11,6 +11,12 @@ from components.tlm_request import data_request
 
 
 @dataclasses.dataclass
+class BEATData:
+    "Data class for BEAT data"
+    file_list: list
+    dbe_data: list
+
+@dataclasses.dataclass
 class BEATDataPoint:
     "Data class for a BEAT report data point."
     ssr: None
@@ -20,10 +26,11 @@ class BEATDataPoint:
     dbe: None
 
 @dataclasses.dataclass
-class BEATData:
-    "Data class for BEAT data"
-    file_list: list
-    dbe_data: list
+class EIADataPoint:
+    "Sequencer selftest data point"
+    msid:       None
+    start_time: None
+    end_time:   None
 
 @dataclasses.dataclass
 class OBCErrorDataPoint:
@@ -40,11 +47,11 @@ class SCS107DataPoint:
     end_time: None
 
 @dataclasses.dataclass
-class EIADataPoint:
-    "Sequencer selftest data point"
-    msid:       None
+class SpuriousCmdLockDataPoint:
+    "Data class for spurious cmd lock event data"
     start_time: None
-    end_time:   None
+    end_time: None
+    receiver: None
 
 @dataclasses.dataclass
 class SSRRolloverDataPoint:
@@ -576,8 +583,17 @@ def vcdu_rollover_detection(user_vars, file):
             print(f"   - Found a VCDU rollover on {rollover}.")
             file.write(f"  - A VCDU rollover was detected on {rollover}\n")
     else:
-        print("   - No VCDU rollover detected.")
-        file.write("  - No VCDU rollover deteccted.\n")
+        # Determine the estimated date of next rollover
+        vcdus_until_rollover= 16777215 - vcdu_data.vals[-1]
+        end_time= CxoTime(vcdu_data.times[-1])
+        secs_in_daterange= ((end_time - user_vars.ts).datetime.seconds +
+                            ((end_time - user_vars.ts).datetime.days * 86400))
+        vcdus_per_sec= secs_in_daterange/(len(vcdu_data.vals))
+        time_to_rollover= timedelta(seconds= vcdus_until_rollover * vcdus_per_sec)
+        est_rollover_date= (end_time + time_to_rollover).yday
+
+        print(f"   - No VCDU rollover detected. (Estimated rollover: {est_rollover_date})")
+        file.write(f"  - No VCDU rollover deteccted. (Estimated rollover: {est_rollover_date})\n")
 
     # return back to user set
     user_vars.data_source= default_data_rate
@@ -644,14 +660,15 @@ def spurious_cmd_lock_detection(user_vars, file):
     spurious_cmd_locks= get_spurious_cmd_locks(user_vars, dsn_comm_times)
 
     if spurious_cmd_locks:
-        for receiver, date_list in spurious_cmd_locks.items():
-            for date in date_list:
-                date_time= date.strftime("%Y:%j:%H:%M:%S.%f")
-                # if receiver:
-                file.write(f"  - Spurious Command Lock found on Receiver-{receiver} "
-                        f"at {date_time}z.\n")
+        for spurious_cmd_lock in spurious_cmd_locks:
+            receiver=   spurious_cmd_lock.receiver
+            start_time= spurious_cmd_lock.start_time
+            end_time=   spurious_cmd_lock.end_time
+            file.write(f"  - Spurious Command Lock found on Receiver-{receiver} "
+                       f"from ({start_time} thru {end_time}).\n")
     else:
-        file.write("  - No spurious command locks found.\n")
+        response= "  - No spurious command locks found.\n"
+        file.write(response)
 
 
 def parse_dsn_comms(user_vars):
@@ -693,36 +710,50 @@ def get_spurious_cmd_locks(user_vars, dsn_comm_times):
     "from a know list of comm times, find spurious cmd locks"
     default_data_rate= user_vars.data_source # save user set rate
     user_vars.data_source= "SKA Abreviated" # force data rate
-    spurious_cmd_locks= {}
+    data_list= []
 
     for receiver in ("A","B"):
         print(f"   - Checking for Receiver-{receiver} lock...")
-
+        data_point= SpuriousCmdLockDataPoint(None, None, None)
         raw_data= data_request(user_vars, f"CCMDLK{receiver}")
-        locked_times= []
 
-        # Purge raw data into dates when receiver was locked.
-        for time, value in zip(raw_data.times, raw_data.vals):
-            if value== "LOCK":
-                locked_times.append(CxoTime(time).datetime)
+        # Check if receiver was LOCK outside of expected comm
+        for index, (time, value) in enumerate(zip(raw_data.times, raw_data.vals)):
+            time_object, counter= CxoTime(time), 0
 
-        # Check if times when locked was outside of expected comm
-        for locked_time in locked_times:
-            value_out_of_comm= []
+            # From NLCK to LOCK
+            if (value == "LOCK") and (raw_data.vals[index - 1] == "NLCK") and (index != 0):
+                for expected_comm in dsn_comm_times:
+                    if not expected_comm[0] < (time_object.datetime) < expected_comm[1]:
+                        counter += 1
+                if counter == len(dsn_comm_times):
+                    data_point.start_time= time_object.yday
+                    data_point.receiver= receiver
+            # From LOCK to NLCK, must have a start_time recorded
+            elif ((value == "NLCK") and (raw_data.vals[index - 1] == "LOCK") and
+                (index != 0) and (data_point.start_time is not None)):
+                for expected_comm in dsn_comm_times:
+                    if not expected_comm[0] < time_object.datetime < expected_comm[1]:
+                        counter += 1
+                if counter == len(dsn_comm_times):
+                    data_point.end_time= time_object.yday
+                    data_point.receiver= receiver
 
-            for expected_comm in dsn_comm_times:
-                if expected_comm[0] < locked_time < expected_comm[1]:
-                    value_out_of_comm.append(False)
-                else:
-                    value_out_of_comm.append(True)
+            # Collect data_points
+            # Append data_list if last sample /w partially filled data_point.
+            if (index + 1 ==  len(raw_data.times) and
+                ((data_point.start_time is not None) or (data_point.end_time is not None))):
+                data_list.append(data_point)
+            # Append data_list if data_point fills, then make a new data_point.
+            elif data_point.start_time is not None and data_point.end_time is not None:
+                data_list.append(data_point)
+                print(f"    - Spurious Command Lock found on Receiver-{receiver} "
+                      f"from ({data_point.start_time} thru {data_point.end_time}).")
+                data_point= SpuriousCmdLockDataPoint(None, None, None)
 
-            if all(i for i in value_out_of_comm):
-                spurious_cmd_locks.setdefault(f"{receiver}",[]).append(locked_time)
-                print(f"   - Spurious Command Lock on Receiver-{receiver} "
-                      f"""found at "{locked_time.strftime("%Y:%j:%H:%M:%S.%f")}z".""")
     user_vars.data_source= default_data_rate # return back to user set
 
-    return spurious_cmd_locks
+    return data_list
 
 
 def sequencer_selftest_detection(user_vars, file):
