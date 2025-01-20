@@ -56,7 +56,7 @@ def add_receiver_sec_volt_plots(user_vars,figure):
     msids = ["CRXAV","CRXBV"]
 
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
-        add_plot_trace(user_vars,msid,figure,rows=4,cols=1)
+        add_plot_trace(user_vars,msid,figure,{"rows":4,"cols":1})
 
     figure.add_hline(y = 4.2, line_dash = "dash", line_color = "red")
     figure.add_hline(y = 3.8, line_dash = "dash", line_color = "red")
@@ -75,11 +75,11 @@ def add_loop_stress_plots(user_vars,figure):
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
 
         if msid in ("CRXALS","CRXBLS"):
-            rows, cols = 1, 1
+            location= {"rows":1,"cols":1}
         else:
-            rows, cols, = 2, 1
+            location= {"rows":2,"cols":1}
 
-        add_plot_trace(user_vars,msid,figure,rows,cols)
+        add_plot_trace(user_vars,msid,figure,location)
 
 
 def add_reciever_signal_plots(user_vars,figure):
@@ -94,8 +94,8 @@ def add_reciever_signal_plots(user_vars,figure):
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
 
         if msid in ("CRXASIG","CRXBSIG"):
-            rows, cols = 1, 2
+            location= {"rows":1,"cols":2}
         else:
-            rows, cols = 2, 2
+            location= {"rows":2,"cols":2}
 
-        add_plot_trace(user_vars,msid,figure,rows,cols)
+        add_plot_trace(user_vars,msid,figure,location)

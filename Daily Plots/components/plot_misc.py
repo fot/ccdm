@@ -59,9 +59,9 @@ def format_plot_axes(user_vars,figure,plot_title,yaxis_titles):
     )
 
 
-def add_plot_trace(user_vars,msid,figure,rows,cols,trace_title=False):
+def add_plot_trace(user_vars,msid,figure,location,trace_title=False):
     "Add a plot trace per given MSID list and plot location"
-    raw_data = data_request(user_vars, msid)
+    raw_data = data_request(user_vars.ts,user_vars.tp,user_vars.data_source,msid)
     formatted_times = format_times(raw_data, user_vars)
 
     if user_vars.data_source in "MAUDE Web":
@@ -78,7 +78,8 @@ def add_plot_trace(user_vars,msid,figure,rows,cols,trace_title=False):
             x = formatted_times,
             y = y_values,
             mode = "lines",
-            name = title
+            name = title,
+            connectgaps= False
         ),
-        rows = rows, cols = cols
+        rows = location["rows"], cols = location["cols"]
     )

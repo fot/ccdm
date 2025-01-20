@@ -1,6 +1,5 @@
 "Generate the Status Report"
 
-import itertools as it
 import dataclasses
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -8,6 +7,15 @@ from tqdm import tqdm
 from cxotime import CxoTime
 from components.misc import make_output_dir, format_wk, format_doy
 from components.tlm_request import data_request
+from components.status_report.components.spurious_cmd_lock_detection import (
+    spurious_cmd_lock_detection)
+from components.status_report.components.vcdu_rollover_detection import (
+    vcdu_rollover_detection)
+from components.status_report.components.ssr_rollover_detection import (
+    ssr_rollover_detection)
+from components.status_report.components.sequencer_selftest_detection import (
+    sequencer_selftest_detection)
+from components.status_report.components.scs107_detection import scs107_detection
 
 
 @dataclasses.dataclass
@@ -26,38 +34,12 @@ class BEATDataPoint:
     dbe: None
 
 @dataclasses.dataclass
-class EIADataPoint:
-    "Sequencer selftest data point"
-    msid:       None
-    start_time: None
-    end_time:   None
-
-@dataclasses.dataclass
 class OBCErrorDataPoint:
     "Data class for an obc error data point."
     doy: None
     time: None
     error_type: None
     error: None
-
-@dataclasses.dataclass
-class SCS107DataPoint:
-    "Data class for SCS107 runs"
-    start_time: None
-    end_time: None
-
-@dataclasses.dataclass
-class SpuriousCmdLockDataPoint:
-    "Data class for spurious cmd lock event data"
-    start_time: None
-    end_time: None
-    receiver: None
-
-@dataclasses.dataclass
-class SSRRolloverDataPoint:
-    "Data class for SSR Rollover Data"
-    prime_to_backup: None
-    backup_to_prime: None
 
 
 def generate_status_report(user_vars, auto_gen= False):
@@ -114,10 +96,8 @@ def get_corrupted_datapoints(user_vars, msid, bound):
     Input: User Variables, MSID <str>, Bound <list>
     Output: Dict of corrupted data points, format {MSID,["TIME", "DATA"]}
     """
-    corrupted_values, org_data_source= {}, user_vars.data_source
-    user_vars.data_source= "SKA High Rate" # Want all data points
-    raw_data= data_request(user_vars, msid)
-    user_vars.data_source= org_data_source # Restore to what it was
+    corrupted_values = {}
+    raw_data= data_request(user_vars.ts,user_vars.tp,"SKA High Rate",msid)
 
     for data_point, time_point in zip(raw_data.vals, raw_data.times):
         try:
@@ -554,346 +534,12 @@ def misc_detection(user_vars, file):
         f"Misc Detected Items for {user_vars.year_start}:{format_doy(user_vars.doy_start)} "
         f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" + line+line+line + "\n")
 
-    vcdu_rollover_detection(user_vars, file)
-    spurious_cmd_lock_detection(user_vars, file)
-    ssr_rollover_detection(user_vars, file)
-    sequencer_selftest_detection(user_vars, file)
-    scs107_detection(user_vars, file)
+    vcdu_rollover_detection(user_vars,file)
+    spurious_cmd_lock_detection(user_vars,file)
+    ssr_rollover_detection(user_vars,file)
+    sequencer_selftest_detection(user_vars,file)
+    scs107_detection(user_vars,file)
 
     file.write("\n  ----------END OF MISC DETECTION----------")
     file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
     print(" - Done! Data written to Misc section.")
-
-
-def vcdu_rollover_detection(user_vars, file):
-    "Detect VCDU rollovers"
-    print(" - VCDU Rollover Detection...")
-    default_data_rate= user_vars.data_source # save user set rate
-    user_vars.data_source= "SKA High Rate" # force data rate
-    vcdu_data= data_request(user_vars, "CCSDSVCD")
-
-    # Parse the rollover data
-    vcdu_rollover_dates= []
-    for index, (value, time) in enumerate(zip(vcdu_data.vals, vcdu_data.times)):
-        if (value < vcdu_data.vals[index - 1]) and (value < 5):
-            vcdu_rollover_dates.append(f"{CxoTime(time).yday}")
-
-    if vcdu_rollover_dates:
-        for rollover in vcdu_rollover_dates:
-            print(f"   - Found a VCDU rollover on {rollover}.")
-            file.write(f"  - A VCDU rollover was detected on {rollover}\n")
-    else:
-        # Determine the estimated date of next rollover
-        vcdus_until_rollover= 16777215 - vcdu_data.vals[-1]
-        end_time= CxoTime(vcdu_data.times[-1])
-        secs_in_daterange= ((end_time - user_vars.ts).datetime.seconds +
-                            ((end_time - user_vars.ts).datetime.days * 86400))
-        vcdus_per_sec= secs_in_daterange/(len(vcdu_data.vals))
-        time_to_rollover= timedelta(seconds= vcdus_until_rollover * vcdus_per_sec)
-        est_rollover_date= (end_time + time_to_rollover).yday
-
-        print(f"   - No VCDU rollover detected. (Estimated rollover: {est_rollover_date})")
-        file.write(f"  - No VCDU rollover deteccted. (Estimated rollover: {est_rollover_date})\n")
-
-    # return back to user set
-    user_vars.data_source= default_data_rate
-
-
-def scs107_detection(user_vars, file):
-    "Detect a run of SCS107, then write it to console and report file"
-    print(" - SCS107 Detection...")
-    data_list= []
-    default_data_rate= user_vars.data_source # save user set rate
-    user_vars.data_source= "SKA High Rate" # force data rate
-    data= data_request(user_vars, "COSCS107S")
-    data_point= SCS107DataPoint(None, None) # Initial data_point
-
-    for index, (value, time) in enumerate(zip(data.vals, data.times)):
-
-        # Populate data_point as SCS107 changes state
-        if (value in ("DISA", "ACT")) and (data.vals[index - 1]== "INAC") and (index > 0):
-            data_point.start_time= CxoTime(time).yday
-        elif (value== "INAC") and (data.vals[index - 1]== "DISA") and (index > 0):
-            data_point.end_time= CxoTime(time).yday
-
-        # Append data_list if at last sample w/ partially filled data_point.
-        if (index + 1 == len(data.vals) and
-              ((data_point.start_time is not None) or (data_point.end_time is not None))):
-            data_list.append(data_point)
-        # Append data_list if data_point fills, then make a new empty data_point.
-        elif (data_point.start_time is not None) and (data_point.end_time is not None):
-            data_list.append(data_point)
-            data_point= SCS107DataPoint(None, None)
-        # Append data_list if an end_time is found before a start_time, make an empty data_point.
-        elif (data_point.start_time is None) and (data_point.end_time is not None):
-            data_list.append(data_point)
-            data_point= SCS107DataPoint(None, None)
-
-    # Write SCS107 runs found
-    if data_list:
-        for data_item in data_list:
-            if (data_item.start_time is not None) and (data_item.end_time is not None):
-                print(f"   - Found a run of SCS107 on {data_item.start_time} "
-                      f"and was re-enabled on {data_item.end_time}.")
-                file.write(f"  - SCS107 ran on {data_item.start_time} "
-                           f"and was re-enabled on {data_item.end_time}.\n")
-            elif (data_item.start_time is not None) and (data_item.end_time is None):
-                print(f"   - Found a run of SCS107 on {data_item.start_time}.")
-                file.write(f"  - SCS107 ran on {data_item.start_time} "
-                           "and hasn't been re-enabled yet.\n")
-            elif (data_item.start_time is None) and (data_item.end_time is not None):
-                print("   - Found a previous run of SCS 107 out of input range.")
-                file.write(f"  - SCS107 prevously ran on a time outside of input "
-                        f"range and was re-enabled on {data_item.end_time}.\n")
-    else:
-        print("   - No run of SCS107 detected.")
-        file.write("  - No run of SCS107 detected.\n")
-
-    # return back to user set
-    user_vars.data_source= default_data_rate
-
-
-def spurious_cmd_lock_detection(user_vars, file):
-    "detect spurious locks outside expected comm time"
-    print(" - Spurious Lock Detection...")
-    dsn_comm_times= parse_dsn_comms(user_vars)
-    spurious_cmd_locks= get_spurious_cmd_locks(user_vars, dsn_comm_times)
-
-    if spurious_cmd_locks:
-        for spurious_cmd_lock in spurious_cmd_locks:
-            receiver=   spurious_cmd_lock.receiver
-            start_time= spurious_cmd_lock.start_time
-            end_time=   spurious_cmd_lock.end_time
-            file.write(f"  - Spurious Command Lock found on Receiver-{receiver} "
-                       f"from ({start_time} thru {end_time}).\n")
-    else:
-        response= "  - No spurious command locks found.\n"
-        file.write(response)
-
-
-def parse_dsn_comms(user_vars):
-    "Parse the inputted file directory of DSN comms to look for Chandra comms."
-    dsn_comm_times, dsn_comm_dirs, date_range= ([] for i in range(3))
-    date_diff= user_vars.tp.datetime - user_vars.ts.datetime
-
-    # Build file list to parse.
-    for year in (user_vars.year_start, user_vars.year_end):
-        for wk in range(1,53):
-            file_path= ("/home/mission/MissionPlanning/DSN/DSNweek/"
-                        f"{year}_wk{format_wk(wk)}_all.txt")
-            if file_path not in dsn_comm_dirs:
-                dsn_comm_dirs.append(file_path)
-
-    for value in range(date_diff.days + 3):
-        date_value= (timedelta(days= -1) + user_vars.ts + value).strftime("%j")
-        date_range.append(date_value)
-
-    for dsn_comm in dsn_comm_dirs:
-        try:
-            with open(dsn_comm, "r", encoding="utf-8") as comm_file:
-                for line in comm_file:
-                    if "CHDR" in line:
-                        split_line = line.split()
-                        bot_time= datetime.strptime(split_line[3], "%Y:%j:%H:%M:%S.%f")
-                        eot_time= datetime.strptime(split_line[5], "%Y:%j:%H:%M:%S.%f")
-                        if bot_time.strftime("%j") in date_range:
-                            per_pass = [bot_time - timedelta(days= 0.75/24),
-                                        eot_time + timedelta(days= 0.75/24)]
-                            dsn_comm_times.append(per_pass)
-        except FileNotFoundError:
-            print(f"""   - File: "{dsn_comm}" not found in base directory, skipping file...""")
-
-    return dsn_comm_times
-
-
-def get_spurious_cmd_locks(user_vars, dsn_comm_times):
-    "from a know list of comm times, find spurious cmd locks"
-    default_data_rate= user_vars.data_source # save user set rate
-    user_vars.data_source= "SKA Abreviated" # force data rate
-    data_list= []
-
-    for receiver in ("A","B"):
-        print(f"   - Checking for Receiver-{receiver} lock...")
-        data_point= SpuriousCmdLockDataPoint(None, None, None)
-        raw_data= data_request(user_vars, f"CCMDLK{receiver}")
-
-        # Check if receiver was LOCK outside of expected comm
-        for index, (time, value) in enumerate(zip(raw_data.times, raw_data.vals)):
-            time_object, counter= CxoTime(time), 0
-
-            # From NLCK to LOCK
-            if (value == "LOCK") and (raw_data.vals[index - 1] == "NLCK") and (index != 0):
-                for expected_comm in dsn_comm_times:
-                    if not expected_comm[0] < (time_object.datetime) < expected_comm[1]:
-                        counter += 1
-                if counter == len(dsn_comm_times):
-                    data_point.start_time= time_object.yday
-                    data_point.receiver= receiver
-            # From LOCK to NLCK, must have a start_time recorded
-            elif ((value == "NLCK") and (raw_data.vals[index - 1] == "LOCK") and
-                (index != 0) and (data_point.start_time is not None)):
-                for expected_comm in dsn_comm_times:
-                    if not expected_comm[0] < time_object.datetime < expected_comm[1]:
-                        counter += 1
-                if counter == len(dsn_comm_times):
-                    data_point.end_time= time_object.yday
-                    data_point.receiver= receiver
-
-            # Collect data_points
-            # Append data_list if last sample /w partially filled data_point.
-            if (index + 1 ==  len(raw_data.times) and
-                ((data_point.start_time is not None) or (data_point.end_time is not None))):
-                data_list.append(data_point)
-            # Append data_list if data_point fills, then make a new data_point.
-            elif data_point.start_time is not None and data_point.end_time is not None:
-                data_list.append(data_point)
-                print(f"    - Spurious Command Lock found on Receiver-{receiver} "
-                      f"from ({data_point.start_time} thru {data_point.end_time}).")
-                data_point= SpuriousCmdLockDataPoint(None, None, None)
-
-    user_vars.data_source= default_data_rate # return back to user set
-
-    return data_list
-
-
-def sequencer_selftest_detection(user_vars, file):
-    "Auto detect when an EIA sequencer self-test occured"
-    print(" - EIA Sequencer Self-Test Detection...")
-    msids = {"C1SQATPS":"NPAS","C2SQATPS":"NPAS","C1SQBTPS":"NPAS","C2SQBTPS":"NPAS",
-             "C1SQPTLX":"SET","C2SQPTLX":"SET","C1SQRTLX":"SET","C2SQRTLX":"SET",
-             "C1SQATPP":"TEST","C2SQATPP":"TEST"}
-    relay_data_points, start_times, end_times = ([] for i in range(3))
-    default_data_rate= user_vars.data_source # save user set rate
-    user_vars.data_source= "SKA Abreviated" # force data rate
-
-    for msid, expected_value in msids.items():
-        raw_msid_data = data_request(user_vars, f"{msid}")
-        relay_data_points.append(detect_status_change(raw_msid_data,expected_value))
-
-    for data_point in relay_data_points:
-        if data_point.start_time is not None:
-            start_times.append(data_point.start_time)
-        if data_point.end_time is not None:
-            end_times.append(data_point.end_time)
-
-    # Good Test detected in time range
-    if len(start_times) == 10 and len(end_times) == 10:
-        response = ("A successful EIA-A Sequencer self-test occured on "
-                    f"{relay_data_points[0].start_time}.")
-
-    # Bad test detected
-    elif (10 > len(start_times) > 0) or (10 > len(end_times) > 0):
-        response = ("An incomplete EIA-A Sequencer self-test occured on "
-                    f"{relay_data_points[0].start_time}.")
-
-    # No test detected in time range
-    elif all(v is None for v in start_times) and all(v is None for v in end_times):
-        response = "No EIA Sequencer self-test detected."
-
-    # Error if nothing found.
-    else:
-        response = "Unable to determine EIA Sequencer self-test status."
-
-    user_vars.data_source= default_data_rate # restore user set rate
-    print(f"   - {response}")
-    file.write(f"  - {response}\n")
-
-
-def detect_status_change(data, expected_value):
-    "Return a list of data points when state changes."
-    data_point = EIADataPoint(None,None,None)
-
-    for index, (loop_data, loop_time) in enumerate(zip(data.vals, data.times)):
-        # Record MSID
-        if not data_point.msid:
-            data_point.msid = data.msid
-
-        try:
-            # Find First Value
-            if ((loop_data == expected_value) and
-                (data.vals[index - 1] != expected_value)
-                ):
-                data_point.start_time = CxoTime(loop_time).yday
-
-            # Find Last Value
-            if ((loop_data != expected_value) and
-                (data.vals[index - 1] == expected_value)
-                ):
-                data_point.end_time = CxoTime(data.times[index - 1]).yday
-        except IndexError:
-            pass
-
-    return data_point
-
-
-def ssr_rollover_detection(user_vars, file):
-    "ssr rollover detection"
-    print(" - SSR Rollover Detection...")
-    ssr_rollover_data = get_ssr_rollover_data(user_vars)
-    response= "No SSR rollover detected."
-
-    # Write Data to report file
-    if user_vars.ssr_prime[0] == "A":
-        backup = "B"
-    else: backup = "A"
-
-    if ssr_rollover_data:
-        for data_item in ssr_rollover_data:
-            if (data_item.prime_to_backup is not None) and (data_item.backup_to_prime is not None):
-                response= (f"An SSR Rollover occured from SSR-{user_vars.ssr_prime[0]} to "
-                           f"SSR-{backup} on {data_item.prime_to_backup}. "
-                           f"SSR Recovery occured on {data_item.backup_to_prime}.")
-            elif (data_item.prime_to_backup is not None) and (data_item.backup_to_prime is None):
-                response= (f"An SSR Rollover occured from SSR-{user_vars.ssr_prime[0]} "
-                           f"to SSR-{backup} on {data_item.prime_to_backup} "
-                           "and SSR Recovery hasn't occured yet.")
-            elif (data_item.prime_to_backup is None) and (data_item.backup_to_prime is not None):
-                response= (f"Found a previous SSR Rollover from SSR-{user_vars.ssr_prime[0]} "
-                           f"to SSR-{backup} outside of input date/time range, but "
-                           f"SSR Recovery occured on {data_item.backup_to_prime}.")
-            print(f"   - {response}")
-            file.write(f"  - {response}\n")
-    else:
-        print(f"   - {response}")
-        file.write(f"  - {response}\n")
-
-
-def get_ssr_rollover_data(user_vars):
-    """
-    Description: Find datetimes and data points when SSRs rolled over
-    Input: User variable dates
-    Output: <dict>
-    """
-    default_data_rate= user_vars.data_source # save user set rate
-    user_vars.data_source= "SKA Abreviated" # force data rate
-    ssr_data = data_request(user_vars, f"COS{user_vars.ssr_prime[0]}RCEN")
-    data_list= []
-    data_point= SSRRolloverDataPoint(None, None)
-
-    # Parse data for SSR record swap on prime SSR
-    for index, (time, value) in enumerate(zip(ssr_data.times, ssr_data.vals)):
-
-        # Detect rollover from prime-to-backup & backup-to-prime
-        if index != 0:
-            if value == "FALS" and ssr_data.vals[index - 1] == "TRUE":
-                data_point.prime_to_backup= CxoTime(time).yday
-            elif value == "TRUE" and ssr_data.vals[index - 1] == "FALS":
-                data_point.backup_to_prime= CxoTime(time).yday
-
-        # Append data_list if last sample w/ partially filled data_point.
-        if (index + 1 == len(ssr_data.vals) and
-              ((data_point.prime_to_backup is not None) or
-              (data_point.backup_to_prime is not None))):
-            data_list.append(data_point)
-        # Append data_list if data_point fills, then make a new data_point.
-        elif data_point.prime_to_backup is not None and data_point.backup_to_prime is not None:
-            data_list.append(data_point)
-            data_point= SSRRolloverDataPoint(None, None)
-        # Append data_list if a backup-to-prime swap occurs before a prime-to-backup swap.
-        elif data_point.prime_to_backup is None and data_point.backup_to_prime is not None:
-            data_list.append(data_point)
-            data_point= SSRRolloverDataPoint(None, None)
-
-    user_vars.data_source= default_data_rate # restore user set rate
-
-    return data_list
