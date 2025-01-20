@@ -16,15 +16,11 @@ def add_chandra_range_plots(user_vars,figure,pa_plot=False):
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
         if pa_plot:
             if msid in "CALC_AXAF_RANGE":
-                rows, cols, trace_title = 3, 2, "Chandra Range"
-                add_plot_trace(user_vars,msid,figure,rows,cols,trace_title)
+                add_plot_trace(user_vars,msid,figure,{"rows":3,"cols":2},"Chandra Range")
             else:
-                rows, cols = 4, 2
-                add_plot_trace(user_vars,msid,figure,rows,cols)
+                add_plot_trace(user_vars,msid,figure,{"rows":4,"cols":2})
         else:
             if msid in "CALC_AXAF_RANGE":
-                rows, cols, trace_title = 4, 2, "Chandra Range"
-                add_plot_trace(user_vars,msid,figure,rows,cols,trace_title)
+                add_plot_trace(user_vars,msid,figure,{"rows":4,"cols":2},"Chandra Range")
             else:
-                rows, cols = 5, 2
-                add_plot_trace(user_vars,msid,figure,rows,cols)
+                add_plot_trace(user_vars,msid,figure,{"rows":5,"cols":2})

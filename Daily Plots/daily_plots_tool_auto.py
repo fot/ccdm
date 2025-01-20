@@ -4,18 +4,20 @@ Change Notes
  - Moved methods to external modules to be shared with manual run variant.
 """
 
+import warnings
+warnings.filterwarnings("ignore")
+
 from datetime import datetime, timedelta, timezone
 from cxotime import CxoTime
 from components.misc import cleanup
 from components.receiver_data_plot import generate_receiver_data_plots
 from components.rf_power_data_plot import generate_rf_power_data_plots
 from components.power_amp_data_plot import generate_power_amp_data_plots
-from components.status_report import generate_status_report
+from components.status_report.status_report import generate_status_report
 
 
 class UserVariables:
     "User inputs object. Used to store input values."
-
     def __init__(self):
         self.ssr_prime= ["B","2024:213:05:26:34"]
         self.start_date= datetime.now(timezone.utc) - timedelta(14)

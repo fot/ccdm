@@ -54,7 +54,7 @@ def add_pa_sec_volt_data_plot(user_vars,figure):
     msids = ["CPA1V","CPA2V"]
 
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
-        add_plot_trace(user_vars,msid,figure,rows=1,cols=1)
+        add_plot_trace(user_vars,msid,figure,{"rows":1,"cols":1})
 
     figure.add_hline(y = 4.1, line_dash = "dash", line_color = "red", row=1, col=1)
     figure.add_hline(y = 3.7, line_dash = "dash", line_color = "red", row=1, col=1)
@@ -71,7 +71,7 @@ def add_pa_pabp_thrm_data_plot(user_vars,figure):
     msids = ["CPA1BPT","CPA2BPT","TCM_RFAS","CXPNAIT","CXPNBIT"]
 
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
-        add_plot_trace(user_vars,msid,figure,rows=1,cols=2)
+        add_plot_trace(user_vars,msid,figure,{"rows":1,"cols":2})
 
     figure.add_hline(y = 160, line_dash = "dash", line_color = "yellow", row=1, col=2)
     figure.add_hline(y = -4, line_dash = "dash", line_color = "yellow", row=1, col=2)
@@ -88,6 +88,6 @@ def add_pa_pwr_data_plot(user_vars,figure):
     msids = ["CPA1PWR","CPA2PWR"]
 
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
-        add_plot_trace(user_vars,msid,figure,rows=3,cols=1)
+        add_plot_trace(user_vars,msid,figure,{"rows":3,"cols":1})
 
     figure.add_hline(y = 41.15, line_dash = "dash", line_color = "yellow", row=3, col=1)

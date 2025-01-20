@@ -57,11 +57,11 @@ def add_trans_rf_pwr_cnts_plot(user_vars,figure):
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
 
         if msid in ("CTXAX","CTXBX"):
-            rows, cols = 2, 1
+            location= {"rows":2,"cols":1}
         else:
-            rows, cols = 1, 1
+            location= {"rows":1,"cols":1}
 
-        add_plot_trace(user_vars,msid,figure,rows,cols)
+        add_plot_trace(user_vars,msid,figure,location)
 
 
 def add_pa_power_data_plot(user_vars,figure):
@@ -76,11 +76,11 @@ def add_pa_power_data_plot(user_vars,figure):
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
 
         if msid in ("CPA1PWR","CPA2PWR"):
-            rows, cols = 1, 2
+            location= {"rows":1,"cols":2}
         else:
-            rows, cols = 2, 2
+            location= {"rows":2,"cols":2}
 
-        add_plot_trace(user_vars,msid,figure,rows,cols)
+        add_plot_trace(user_vars,msid,figure,location)
 
 
 def add_trans_rf_pwr_output_plot(user_vars,figure):
@@ -95,11 +95,11 @@ def add_trans_rf_pwr_output_plot(user_vars,figure):
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
 
         if msid in ("CTXAPWR","CTXBPWR"):
-            rows, cols = 4, 1
+            location= {"rows":4,"cols":1}
         else:
-            rows, cols = 5, 1
+            location= {"rows":5,"cols":1}
 
-        add_plot_trace(user_vars,msid,figure,rows,cols)
+        add_plot_trace(user_vars,msid,figure,location)
 
 
 def add_antenna_trans_temp_plot(user_vars,figure):
@@ -112,4 +112,4 @@ def add_antenna_trans_temp_plot(user_vars,figure):
     msids = ["TCM_RFAS","TPZLGABM","TMZLGABM","TCM_TX1","TCM_TX2"]
 
     for msid in tqdm(msids, bar_format = "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
-        add_plot_trace(user_vars,msid,figure,rows=4,cols=2)
+        add_plot_trace(user_vars,msid,figure,{"rows":4,"cols":2})

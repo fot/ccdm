@@ -4,15 +4,18 @@ Daily Plots Tool (Manual Run) v1.5
  - Now shares modules with auto run variant
 """
 
-from os import system
+import warnings
+warnings.filterwarnings("ignore")
+
 import time
+from os import system
 from datetime import datetime, timezone
 from cxotime import CxoTime
 from components.misc import user_menu, cleanup
 from components.receiver_data_plot import generate_receiver_data_plots
 from components.rf_power_data_plot import generate_rf_power_data_plots
 from components.power_amp_data_plot import generate_power_amp_data_plots
-from components.status_report import generate_status_report
+from components.status_report.status_report import generate_status_report
 
 
 class UserVariables:
