@@ -19,7 +19,7 @@ from components.status_report.status_report import generate_status_report
 class UserVariables:
     "User inputs object. Used to store input values."
     def __init__(self):
-        self.ssr_prime= ["B","2024:213:05:26:34"]
+        self.ssr_prime= ["A","2025:032:03:34:11"]
         self.start_date= datetime.now(timezone.utc) - timedelta(14)
         self.end_date= datetime.now(timezone.utc)
         self.year_start= str(self.start_date.year)
