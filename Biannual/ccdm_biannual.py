@@ -150,27 +150,47 @@ def display_user_instructions(user_vars):
 
     print(f"""\nConfigured Directory: "{user_vars.set_dir}"\n""")
 
+    # Force user to run BEAT Tool
     while True:
         input(
-            f"""2) Copy previous biannual files into "{user_vars.set_dir}" directory.\n"""
+            f"""2) Run Beat Tool to generate SSR data for Biannual Period.\n"""
+            f"""    - Save BEAT files in {user_vars.set_dir}/Files/SSR/ directory.\n"""
+            """\n     Input DONE once completed: """
+        )
+
+        beat_files= ["DBE-dumped-mission-daily.txt","DBE-dumped-mission-submod.txt","DBE-dumped-period-daily.txt",
+                      "DBE-dumped-period-submod.txt","SBE-42-mission-daily.txt","SBE-43-mission-daily.txt",
+                      "SBE-83-mission-daily.txt","SBE-104-mission-daily.txt","SBE-all-mission-daily.txt",
+                      "SBE-all-mission-submod.txt","SBE-all-period-daily.txt","SBE-all-period-submod.txt"]
+
+        if check_if_files_exist(f"{user_vars.set_dir}/Files/SSR/", beat_files):
+            print("    - Files exist!\n")
+            break
+
+    # Move required files into directories
+    while True:
+        input(
+            f"""3) Copy previous biannual files into "{user_vars.set_dir}" directory.\n"""
             "   Rename files as follows:\n"
             """    - "full_mission_maxes.csv" --> "mission_maxes.csv"\n"""
             """    - "full_mission_mins.csv" --> "mission_mins.csv"\n"""
             """    - "full_mission_means.csv" --> "mission_means.csv"\n"""
             "\n    Input DONE once completed: "
         )
-        if check_if_files_exist(user_vars):
+
+        data_files= ["mission_maxes.csv","mission_mins.csv","mission_means.csv"]
+
+        if check_if_files_exist(user_vars.set_dir, data_files):
             print("    - Files exist!\n")
             break
         print("    - Please check files again, they couldn't be found. \U0001F62D\n")
 
 
-def check_if_files_exist(user_vars):
+def check_if_files_exist(set_dir, check_files):
     "Checks if files were created. Returns True/False."
-    file_names = ["/mission_maxes.csv","/mission_mins.csv","/mission_means.csv"]
     status = []
-    for file_name in file_names:
-        status.append(path.exists(user_vars.set_dir + file_name))
+    for file_name in check_files:
+        status.append(path.exists(f"{set_dir}/{file_name}"))
     return all(status)
 
 
@@ -602,7 +622,7 @@ def fetch_ska_data(user_vars,data,mission=False):
         start = DateTime(f"{user_vars.start_year}:{user_vars.start_doy}")
     end= DateTime(f"{user_vars.end_year}:{user_vars.end_doy}")
 
-    for msid in tqdm(msid_list):
+    for msid in tqdm(msid_list, bar_format= "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
         get_quarterly_stats(data,msid[0],msid[1],msid[2],start,end)
         df_min = pd.DataFrame({msid[0]:data.mins})
         df_mean = pd.DataFrame({msid[0]:data.means})
@@ -733,7 +753,7 @@ def generate_appendix_figure(user_vars,df_means,df_mins,df_maxes,mission=False):
         "CUSOAOVN": [0,1], "CUSOA28V": [22,30], "CSSR1CAV": [0,6], "CSSR2CBV": [0,6]
         }
 
-    for cur_msid in tqdm(ranges):
+    for cur_msid in tqdm(ranges, bar_format= "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
         msid = tdb.msids[cur_msid]
         if len(msid.Tlmt) > 2 :
             warn_low = msid.Tlmt[4]
@@ -845,14 +865,11 @@ def generate_ska_plots(user_vars, data):
 def main():
     "Main execution"
     user_vars = UserVariables()
-    ssr_data = Data()
-    ska_data = Data()
     display_user_instructions(user_vars)
-    generate_ska_plots(user_vars, ska_data)
-    generate_ssr_plots(user_vars, ssr_data)
+    generate_ska_plots(user_vars, Data())
+    generate_ssr_plots(user_vars, Data())
     generate_pa_bpt_plots(user_vars)
-    if user_vars.prime_ssr == "A":
-        build_sbe_mod104_avg_plot(user_vars)
+    if user_vars.prime_ssr == "A": build_sbe_mod104_avg_plot(user_vars)
     build_sbe_vs_dbe_solar_date_plot(user_vars)
     build_sbe_vs_dbe_submod_plot(user_vars)
     build_query_data_file(user_vars)
