@@ -869,10 +869,10 @@ def main():
     generate_ska_plots(user_vars, Data())
     generate_ssr_plots(user_vars, Data())
     generate_pa_bpt_plots(user_vars)
-    if user_vars.prime_ssr == "A": build_sbe_mod104_avg_plot(user_vars)
+    if user_vars.prime_ssr == "A":
+        build_sbe_mod104_avg_plot(user_vars)
     build_sbe_vs_dbe_solar_date_plot(user_vars)
     build_sbe_vs_dbe_submod_plot(user_vars)
     build_query_data_file(user_vars)
-
 
 main()

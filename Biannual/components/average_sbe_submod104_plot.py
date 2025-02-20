@@ -4,38 +4,23 @@ from datetime import datetime
 import plotly.graph_objects as go
 
 
-def format_plot(plot):
+def format_plot(plot, user_vars):
     "fix the layout of things"
+
+    plot_title = (f"Average Daily SBE for SSR-{user_vars.prime_ssr}<br>"
+                   f"{user_vars.ts.datetime.strftime('%B %Y')} - "
+                   f"{user_vars.tp.datetime.strftime('%B %Y')}")
+
     plot.update_layout(
-        title = {
-            "text": "Average Daily SBE for SSR-A Submodule 104<br>(Aug 2012 - Jul 2024)",
-            "x":0.5, "y":0.95,
-            "xanchor":"center",
-            "yanchor": "top"
-        },
-        font = {
-            "family": "Courier New, monospace",
-            "size": 14,
-        },
-        # plot_bgcolor="rgba(0,0,0,1)",
-        # paper_bgcolor="rgba(0,0,0,1)",
+        title = {"text": f"{plot_title}","x":0.5, "y":0.95,"xanchor":"center","yanchor": "top"},
+        font = {"family": "Courier New, monospace","size": 14},
         autosize=True,
         showlegend=True,
         hovermode="x unified",
-        legend = {
-            # "bgcolor": "rgba(57,57,57,1)",
-            "bordercolor": "black",
-            "borderwidth": 1,
-            "yanchor":"top",
-            "y":0.99,
-            "xanchor":"left",
-            "x":0.01,
-            "font":{"size":20}
-        },
-    )
-    plot.update_traces(
-        marker = {"size":20}
-    )
+        legend = {"bordercolor": "black","borderwidth": 1,"yanchor":"top",
+                  "y":0.99,"xanchor":"left","x":0.01,"font":{"size":20}},
+        )
+    plot.update_traces(marker = {"size":20})
     plot.update_yaxes(title = {"text":"Average Daily SBE Count"})
     plot.update_xaxes(title = {"text":"Biannual Period"})
 
@@ -43,13 +28,13 @@ def format_plot(plot):
 def add_plot_trace(plot, x, y, trace_name):
     "Write a trace as a scatter plot"
     plot.add_trace(
-    go.Scatter(
-        x = x,
-        y = y,
-        name = trace_name,
-        mode = "markers"
-    )
-)
+        go.Scatter(
+            x = x,
+            y = y,
+            name = trace_name,
+            mode = "markers"
+            )
+        )
 
 
 def open_txt_file(base_dir, file):
@@ -98,7 +83,7 @@ def build_sbe_mod104_avg_plot(user_vars):
         ["2014:032","2014:213"],["2015:032","2015:213"],["2016:032","2016:214"],
         ["2017:032","2017:213"],["2018:032","2018:213"],["2019:032","2019:213"],
         ["2020:032","2020:214"],["2021:032","2021:213"],["2022:032","2022:213"],
-        ["2023:032","2023:213"],["2024:032","2024:214"]]
+        ["2023:032","2023:213"],["2024:032","2024:214"],["2025:032","2025:213"]]
 
     # Build averages per period
     sbe_average = []
@@ -122,5 +107,5 @@ def build_sbe_mod104_avg_plot(user_vars):
         sbe_avg_y.append(data[1])
 
     add_plot_trace(plot, sbe_avg_x, sbe_avg_y, "Average SBE for SSR-A Submodule 104")
-    format_plot(plot)
+    format_plot(plot, user_vars)
     plot.write_html(f"{base_dir}/Output/Avg_SBE_Submod104.html")
