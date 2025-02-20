@@ -26,7 +26,6 @@ class DSNData:
 
 
 def get_ssr_rollover_data(user_vars):
-
     "Get SSR data for active dates and when rollover occured."
 
     if user_vars.prime_ssr == "A":
@@ -35,7 +34,7 @@ def get_ssr_rollover_data(user_vars):
 
     print(f"Looking for when SSR-{backup} was active while SSR-{user_vars.prime_ssr} was prime...")
     ssr_data = ska_data(user_vars.ts, user_vars.tp, f"COS{user_vars.prime_ssr}RCEN", True)
-    data_list, rollover_days= [], []
+    data_list= []
     data_point= SSRRolloverDataPoint(None, None)
 
     # Parse data for SSR record swap on prime SSR
@@ -45,9 +44,9 @@ def get_ssr_rollover_data(user_vars):
 
         if index != 0:
             if value == "FALS" and ssr_data.vals[index - 1] == "TRUE":
-                data_point.prime_to_backup= CxoTime(time)
+                data_point.prime_to_backup= CxoTime(time).datetime
             elif value == "TRUE" and ssr_data.vals[index - 1] == "FALS":
-                data_point.backup_to_prime= CxoTime(time)
+                data_point.backup_to_prime= CxoTime(time).datetime
 
         # Append data_list if last sample w/ partially filled data_point
         if (index + 1 == len(ssr_data.vals) and
@@ -63,14 +62,27 @@ def get_ssr_rollover_data(user_vars):
             data_list.append(data_point)
             data_point= SSRRolloverDataPoint(None, None)
 
-        # Determine what days backup SSR was active
-        for data_item in data_list:
-            if (data_item.prime_to_backup.datetime.strftime("%j")) not in rollover_days:
-                rollover_days.append(data_item.prime_to_backup.datetime.strftime("%j"))
-            if (data_item.backup_to_prime.datetime.strftime("%j")) not in rollover_days:
-                rollover_days.append(data_item.backup_to_prime.datetime.strftime("%j"))
+    return data_list
 
-    return data_list, rollover_days
+
+def get_rollover_days(ssr_data):
+    "Determine what days backup SSR was active"
+    rollover_days= []
+
+    for data_item in ssr_data:
+        try:
+            if (data_item.prime_to_backup.strftime("%j")) not in rollover_days:
+                rollover_days.append(data_item.prime_to_backup.strftime("%j"))
+        except AttributeError:
+            pass
+
+        try:
+            if (data_item.backup_to_prime.strftime("%j")) not in rollover_days:
+                rollover_days.append(data_item.backup_to_prime.strftime("%j"))
+        except AttributeError:
+            pass
+
+    return rollover_days
 
 
 def write_ssr_data(file, user_vars, ssr_data, rollover_days):
@@ -85,9 +97,13 @@ def write_ssr_data(file, user_vars, ssr_data, rollover_days):
                f"biannual period {rollover_days}\n")
 
     for data_point in ssr_data:
-        file.write(f"  • SSR rollover on {data_point.prime_to_backup.yday} with a "
-                   f"recovery on {data_point.backup_to_prime.yday}\n")
-
+        try:
+            prime_to_backup= data_point.prime_to_backup.strftime('%Y:%j:%H:%M:%S.%f')[:-3]
+            backup_to_prime= data_point.backup_to_prime.strftime('%Y:%j:%H:%M:%S.%f')[:-3]
+            file.write(f"  • SSR rollover on {prime_to_backup}z "
+                       f"with a recovery on {backup_to_prime}z.\n")
+        except AttributeError:
+            pass
     file.write("-------------------------------------------------------------------------\n\n")
 
 
@@ -146,13 +162,11 @@ def write_dsn_data(file, dsn_data_list):
 
     for index, (data) in enumerate(dsn_data_list):
         if not (index + 1) == len(dsn_data_list):
-            file.write(
-                f"  • In {data.year}:{data.month} there were {data.supports} supports with "
-                f"a total time of {data.time} hours.\n")
+            file.write(f"  • In {data.year}:{data.month} there were {data.supports} supports with "
+                       f"a total time of {data.time} hours.\n")
         else:
-            file.write(
-                f"  • In Total there were {data.supports} supports with "
-                f"a total time of {data.time} hours.\n")
+            file.write(f"  • In Total there were {data.supports} supports with "
+                       f"a total time of {data.time} hours.\n")
 
     file.write("-------------------------------------------------------------------------\n\n")
 
@@ -160,9 +174,9 @@ def write_dsn_data(file, dsn_data_list):
 def get_ssr_b_on_mean(user_vars):
     "Get the mean value for MSID CSSR2CBV for the biannaual period when SSR-B ON"
     print("\nFinding the mean value of CSSR2CBV for the biannaul period...")
-    data = ska_data(user_vars.ts, user_vars.tp, "CSSR2CBV", True)
-    values = data.vals
-    sum_of_values, counter = 0, 0
+    data= ska_data(user_vars.ts, user_vars.tp, "CSSR2CBV", True)
+    values= data.vals
+    sum_of_values, counter= 0, 0
 
     for value in values:
         if value != 0: # Only include values when SSR was ON.
@@ -180,9 +194,11 @@ def write_ssr_b_mean(file, mean_value):
 
 def build_query_data_file(user_vars):
     "Build the query data file"
-    ssr_data, rollover_days = get_ssr_rollover_data(user_vars)
+    ssr_data= get_ssr_rollover_data(user_vars)
+    rollover_days= get_rollover_days(ssr_data)
     dsn_data = get_dsn_data(user_vars)
-    if user_vars.prime_ssr == "A": mean_value = get_ssr_b_on_mean(user_vars)
+    if user_vars.prime_ssr == "A":
+        mean_value= get_ssr_b_on_mean(user_vars)
 
     # Open the output file
     with open(f"{user_vars.set_dir}/Output/query_data.txt", "w+", encoding="utf-8") as file:
@@ -191,4 +207,7 @@ def build_query_data_file(user_vars):
         file.write("-------------------------------------------------------------------------\n\n")
         write_ssr_data(file, user_vars, ssr_data, rollover_days)
         write_dsn_data(file, dsn_data)
-        if user_vars.prime_ssr == "A": write_ssr_b_mean(file, mean_value)
+        if user_vars.prime_ssr == "A":
+            write_ssr_b_mean(file, mean_value)
+        file.close()
+    print("\n - Query Data File Created!")

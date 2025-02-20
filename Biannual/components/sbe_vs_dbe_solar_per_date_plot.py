@@ -59,50 +59,40 @@ def add_solar_spots_data(user_vars):
     return dates, sunspots
 
 
-def format_plot(plot):
+def format_plot(plot, user_vars):
     "Format things"
-    plot["layout"]["yaxis1"]["range"] = (0, 30)
+
+    if user_vars.prime_ssr == "A":
+        plot_title= "SBE vs DBE by Date (SBE minus 42/104)<br>"
+    else:
+        plot_title= "SBE vs DBE by Date<br>"
+    plot_title += (f"SSR-{user_vars.prime_ssr}: {user_vars.ts.datetime.strftime('%B %Y')} "
+                   f"- {user_vars.tp.datetime.strftime('%B %Y')}")
+
     plot.update_layout(
-        title = {
-            "text": "SBE vs DBE by Date (SBE minus 42/104)<br>SSR-A: Feb 2024 - Jul 2024",
-            "x":0.5,
-            "y":0.95,
-            "xanchor":"center",
-            "yanchor": "top"
-        },
-        font = {
-            "family": "Courier New, monospace",
-            "size": 14,
-        },
-        # plot_bgcolor="rgba(0,0,0,1)",
-        # paper_bgcolor="rgba(0,0,0,1)",
-        autosize=True,
-        showlegend=True,
+        title= {"text": plot_title,"x":0.5,"y":0.95,"xanchor":"center","yanchor": "top"},
+        font= {"family": "Courier New, monospace","size": 20},
+        showlegend= True,
         hovermode="x unified",
-        barmode = "overlay",
-        legend = {
-            # "bgcolor": "rgba(57,57,57,1)",
-            "bordercolor": "black",
-            "borderwidth": 1,
-            "yanchor":"top",
-            "y":0.99,
-            "xanchor":"left",
-            "x":0.01,
-            "font":{"size":20}
-        },
-    )
+        barmode= "overlay",
+        legend= {"bordercolor":"black","borderwidth": 1,"font":{"size":20}},
+        yaxis1_range= [0,18],
+        yaxis1_title= {"text":"DBE/SBEs Count","font":{"size":20}},
+        yaxis2_title= {"text":"Sunspot Count","font":{"size":20}},
+        xaxis_title= {"text":"Date","font":{"size":20}},
+        )
 
 
 def add_plot_trace(plot, x, y, trace_name, opacity=1, secondary_y=False):
     "Add a plot trace as a bar trace"
     plot.add_trace(
-    go.Bar(
-        x = x,
-        y = y,
-        name = trace_name,
-        opacity = opacity,
-    ),
-    secondary_y = secondary_y
+        go.Bar(
+            x = x,
+            y = y,
+            name = trace_name,
+            opacity = opacity,
+        ),
+        secondary_y = secondary_y
 )
 
 
@@ -140,10 +130,10 @@ def process_sbe_data(sbe_mod104_data, sbe_mod042_data, sbe_all_data):
     "Determine how many SBE errors actually occured in the period minus modules 104 & 42"
     corrected_data = []
 
-    for index in range(len(sbe_all_data)):
-        corrected_date = sbe_all_data[index][0]
-        corrected_data_point = (
-            sbe_all_data[index][1] - sbe_mod104_data[index][1] - sbe_mod042_data[index][1])
+    for index, data_point in enumerate(sbe_all_data):
+        corrected_date = data_point[0]
+        corrected_data_point = (data_point[1] - sbe_mod104_data[index][1] -
+                                sbe_mod042_data[index][1])
         corrected_data.append([corrected_date, corrected_data_point])
 
     return corrected_data
@@ -183,5 +173,5 @@ def build_sbe_vs_dbe_solar_date_plot(user_vars):
     add_plot_trace(plot, sbe_x, sbe_y, "SBE by Date")
     add_plot_trace(plot, dbe_x, dbe_y, "DBE by Date")
     add_plot_trace(plot, dates, sunspots, "Sunspots", 0.2, True)
-    format_plot(plot)
+    format_plot(plot, user_vars)
     plot.write_html(f"{base_dir}/Output/SBE_vs_DBE_by_Date.html")
