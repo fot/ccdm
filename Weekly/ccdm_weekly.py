@@ -5,12 +5,15 @@ v1.6 Change Notes:
 
 from datetime import datetime, timedelta, timezone
 import urllib.request
+from urllib.error import HTTPError
 import json
 from pathlib import Path
 from os import system
 import warnings
 import time
 import pandas as pd
+import numpy as np
+from dataclasses import dataclass
 from cxotime import CxoTime
 from Chandra.Time import DateTime
 import plotly.graph_objects as go
@@ -33,6 +36,12 @@ warnings.filterwarnings('ignore')
 
 class DataObject:
     "Empty data object to save data to"
+
+@dataclass
+class SupportTimes:
+    "dataclass for support times"
+    bot: None
+    eot: None
 
 
 class UserVariables:
@@ -248,7 +257,7 @@ class UserVariables:
 
 def get_tx_on(ts,tp,tx):
     "returns 'ON' if specified transmitter was on during this interval."
-    ctx = maude_data(ts,tp,f"STAT_5MIN_MIN_CTX{tx}X")
+    ctx = maude_data(ts,tp,f"STAT_5MIN_MIN_CTX{tx}X",False)
     ctx_val = map(int,ctx['data-fmt-1']['values'])
     if min(ctx_val) == 0:
         return 'ON'
@@ -262,84 +271,52 @@ def get_support_stats(ts,tp):
     Input: Times
     Output: list of strings [<str>], [<str>]
     """
-    t_off = timedelta(seconds=3600)
-    ts_off = ts - t_off
-    tp_off = tp - t_off
-    base_url = (
-        "https://occweb.cfa.harvard.edu/occweb/web/webapps/ifot/ifot.php?r=home&t=qserver&format="
-        "list&e=PASSPLAN.sched_support_time.ts_bot.eot&columns=type_desc,sheetlink,tstart&tstart="
-    )
-    url  = base_url+str(ts_off)+"&tstop="+str(tp_off) +"&ul=12"
-    response = urllib.request.urlopen(url)
-    html = response.read()
-    tmp_data = pd.read_html(html)
-    bot_list = tmp_data[0][4][1:]
-    eot_list = tmp_data[0][5][1:]
-    bot_times =[]
-    eot_times =[]
-    for ii,jj in zip(bot_list,eot_list):
-        try: # should do a better job of handling poorly formatted
-            cur_bot = CxoTime(ii)
-        except Exception:
-            cur_bot = "FAIL"
-        if isinstance(cur_bot,CxoTime):
-            bot_times.append(cur_bot)
-            eot_times.append(jj)
-    num_supports = len(bot_times)
-    eot_out_list = []
-    bot_out_list = []
-    for ii,jj in zip(bot_times,eot_times):
-        bot_hod = int(ii.date[9:11])
-        eot_hod = int(jj[0:2])
-        if bot_hod > eot_hod:  # we've wrapped around to the next day
-            eot_offset = timedelta(seconds=86400)
-        else:
-            eot_offset = timedelta(seconds=0)
-        eot_str = list(ii.date)
-        eot_str[9:11] = jj[0:2]
-        eot_str[12:14] = jj[2:4]
-        eot_str[15:17] = '00'
-        eot_time = CxoTime("".join(eot_str)) + eot_offset
-        eot_out_list.append(eot_time)
-        bot_out_list.append(CxoTime(ii))
-    return bot_out_list,eot_out_list, num_supports
+    supports_list= np.array([])
+    url= ("https://occweb.cfa.harvard.edu/occweb/web/webapps/ifot/ifot.php?r=home&t=qserver&format="
+          "list&e=PASSPLAN.sched_support_time.ts_bot.eot&columns=type_desc,sheetlink,tstart&tstart="
+          f"{ts}&tstop={tp}&ul=12"
+          )
+
+    with urllib.request.urlopen(url) as response:
+        tmp_data = pd.read_html(response.read())
+
+    for bot, eot in zip(tmp_data[0][4][1:],tmp_data[0][5][1:]):
+        bot_time= CxoTime(bot)
+        eot_time= CxoTime(f"{bot_time.datetime.year}:"
+                          f"{bot_time.datetime.strftime("%j")}:{eot[:2]}:{eot[2:]}")
+        if eot_time < bot_time:
+            eot_time += timedelta(days= 1)
+        supports_list= np.append(supports_list, SupportTimes(bot_time, eot_time))
+
+    return supports_list
 
 
 def get_dsn_drs(ts,tp):
     "return a table of DR reports from iFOT"
-    base_url = (
+    url = (
         "https://occweb.cfa.harvard.edu/occweb/web/webapps/ifot/ifot.php?r=home&t=qserver&a=show&"
         "format=list&columns=id,type_desc,tstart,properties&size="
-        "auto&e=DSN_DR.problem&op=properties&tstart="
-    )
-    url = base_url+ str(ts)+"&tstop="+str(tp)+"&ul=12"
-    response = urllib.request.urlopen(url)
-    html = response.read()
-    df_tmp = pd.read_html(html)
-    return df_tmp
+        f"auto&e=DSN_DR.problem&op=properties&tstart={ts}+&tstop={tp}&ul=12"
+        )
+    with urllib.request.urlopen(url) as response:
+        return pd.read_html(response.read())
 
 
 def get_ssr_stats(ts,tp):
     "returns pandas dataframe of SSR indicators along with a dict of stats"
-    base_url = (
+    url = (
         "https://occweb.cfa.harvard.edu/occweb/web/webapps/ifot/ifot.php?r=home&t="
         "qserver&format=list&columns=linenum&e=PLAYBACK_BCW.ssr.playback_status."
-        "ts_ssr_start_pb.status_comment&tstart="
-    )
-    url  = base_url+str(ts)+"&tstop="+str(tp) +"&ul=12"
-    response = urllib.request.urlopen(url)
-    html = response.read()
-    df_tmp = pd.read_html(html)
-    # determine which SSRs were active during  the period
-    ssrs = list(df_tmp[0][1][1:])
-    ssrs_status = list(df_tmp[0][2][1:])
-    # remove status not 'OK' or 'FAILED' from consideration
+        f"ts_ssr_start_pb.status_comment&tstart={ts}&stop={tp}&ul=12"
+        )
+    with urllib.request.urlopen(url) as response:
+        df_tmp = pd.read_html(response.read())
     ssr_a_good = 0
     ssr_a_bad = 0
     ssr_b_good = 0
     ssr_b_bad = 0
     ssr_active = ''
-    for status,ssr in zip(ssrs_status,ssrs):
+    for status,ssr in zip(list(df_tmp[0][2][1:]), list(df_tmp[0][1][1:])):
         if status == 'OK' :
             if ssr == 'A':
                 ssr_a_good +=1
@@ -375,18 +352,16 @@ def get_nearest_mod(t):
     t.format = "yday"
     base_url = "https://occweb.cfa.harvard.edu/maude/mrest/FLIGHT/msid.json?m=M1050"
     url = base_url + "&ts=" +str(t) + "&nearest=t"
-    response = urllib.request.urlopen(url)
-    html = response.read()
-    data_after= json.loads(html)
+    with urllib.request.urlopen(url) as response:
+        data_after= json.loads(response.read())
     mod_after = int(data_after['data-fmt-1']['values'][0]) # maybe shoudl check timestamp to gate missing data
     mod_time = jsontime2cxo(str(data_after['data-fmt-1']['times'][0]))
     after_dt = (mod_time - t)*86400  # CxoTime timedelta is in fractional days for yday format
     if abs(after_dt) > 60: # Ignore monitor data that is signficantly far away.  Just assume modulation is on during a pass
         mod_after = 2
     url = base_url + "&tp=" +str(t) + "&nearest=t"
-    response = urllib.request.urlopen(url)
-    html = response.read()
-    data_before= json.loads(html)
+    with urllib.request.urlopen(url) as response:
+        data_before= json.loads(response.read())
     mod_before = int(data_before['data-fmt-1']['values'][0])
     mod_time = jsontime2cxo(str(data_after['data-fmt-1']['times'][0]))
     before_dt = (t - mod_time)*86400 # CxoTime timedelta is in fractional days for yday format
@@ -474,11 +449,7 @@ def make_ssr_by_submod(ssr,year,doy_ts,doy_tp,submod_dict,fname,show,w):
         width=1040,
         height=700,
         showlegend=False,
-        font=dict(
-            family="Courier New, monospace",
-            size=14,
-            color="RebeccaPurple"
-        )
+        font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
     )
     fig.update_layout(barmode='group', xaxis_tickangle=-90)
     fig.update_yaxes(range=[0, max(y[0:127])+1])
@@ -502,11 +473,7 @@ def make_ssr_by_doy(ssr,year,doy_ts,doy_tp,doy_dict,fname,show,w):
         width=1040,
         height=700,
         showlegend=False,
-        font=dict(
-            family="Courier New, monospace",
-            size=14,
-            color="RebeccaPurple"
-        )
+        font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
     )
     fig.update_layout(barmode='group', xaxis_tickangle=-90)
     fig.update_yaxes(range=[0, max(y[doy_ts:doy_tp])+1])
@@ -517,10 +484,7 @@ def make_ssr_by_doy(ssr,year,doy_ts,doy_tp,doy_dict,fname,show,w):
 
 
 def make_ssr_full(ssr,year,doy_ts,doy_tp,doy_full,dbe_full,fname,show,w):
-#    fig = make_subplots(rows=4,cols=1,  x_title='SubModule #',
-#                       y_title='# DBEs')
-    # reformulate data to be X = DOY, Y = Submodule err or no err.
-# TBD: Update for year-spanning periods
+    "Generate SSR Plot"
     doy_list = [i for i in range(doy_ts,doy_tp)]
     full_dict = {}
     for ii in range(1,367):
@@ -548,11 +512,7 @@ def make_ssr_full(ssr,year,doy_ts,doy_tp,doy_full,dbe_full,fname,show,w):
         width=1040,
         height=700,
         showlegend=False,
-        font=dict(
-            family="Courier New, monospace",
-            size=14,
-            color="RebeccaPurple"
-        )
+        font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
     )
     if show:
         fig.show()
@@ -565,80 +525,69 @@ def get_ssr_data(user_vars,data):
 
     print("\nFetching SSR Data...")
 
-    support_t_off = timedelta(seconds=300)
     ssr_data,ssr_stats = get_ssr_stats(user_vars.ts,user_vars.tp)
     ssr_tot_pb = ssr_stats['SSR-A Good'] + ssr_stats['SSR-B Good']
-    bot,eot,num_supports = get_support_stats(user_vars.ts,user_vars.tp)
+    supports_list= get_support_stats(user_vars.ts,user_vars.tp)
 
-    for idx in range(len(bot)):
-        bot[idx] += support_t_off
-        eot[idx] -= support_t_off
+    for support in supports_list:
+        support.bot += timedelta(seconds=300)
+        support.eot -= timedelta(seconds=300)
 
     # Now iterate through each BOT-EOT interval and look for transitions...
-    a_bad = {}
-    b_bad = {}
-    tx_a_on = 0
-    tx_b_on = 0
+    a_bad, b_bad = {}, {}
+    tx_a_on, tx_b_on = 0, 0
 
-    for idx, item in enumerate(bot):
+    for support in supports_list:
         try:
             # Transmitter on/off statistics
-            if get_tx_on(item,eot[idx],'A') == 'ON':
-                tx_a_on +=1
-            if get_tx_on(item,eot[idx],'B') == 'ON':
-                tx_b_on +=1
+            if get_tx_on(support.bot,support.eot,'A') == 'ON':
+                tx_a_on += 1
+            if get_tx_on(support.bot,support.eot,'B') == 'ON':
+                tx_b_on += 1
+
             # Bad Visibility Processing
-            ccmdlka = maude_data(item,eot[idx],'TR_CCMDLKA') #  Look for unlocked intervals
-            ccmdlka_val, ccmdlka_time = ([] for i in range(2))
-            for ii in ccmdlka['data-fmt-1']['values']:
-                ccmdlka_val.append(int(ii))
-            for ii in ccmdlka['data-fmt-1']['times']:
-                ccmdlka_time.append(jsontime2cxo(str(ii)))
-            # Traverse list of CCMDLK vals and times
-            for t,val in zip(ccmdlka_time,ccmdlka_val):
-                tmp_str = str(t)
-                doy = tmp_str[5:8]
-                if val == 1: # this is a transition to NLK
-                    if (t > item) and (t < eot[idx]): #it's in the appropriate time window
-                        if get_nearest_mod(t) == 'ON':    # only tag id modulation is on
-                            a_bad[doy] = 1
-            ccmdlkb = maude_data(item,eot[idx],'TR_CCMDLKB') # just look for unlocked intervals
-            ccmdlkb_val =[]
-            ccmdlkb_time =[]
-            for ii in ccmdlkb['data-fmt-1']['values']:
-                ccmdlkb_val.append(int(ii))
-            for ii in ccmdlkb['data-fmt-1']['times']:
-                ccmdlkb_time.append(jsontime2cxo(str(ii)))
-            for t,val in zip(ccmdlkb_time,ccmdlkb_val):
-                tmp_str = str(t)
-                doy = tmp_str[5:8]
-                if val == 1: # this is a transition to NLK.
-                    if (t > item) and (t < eot[idx]): #it's in the appropriate time window
-                        if get_nearest_mod(t) == 'ON':    # only tag id modulation is on
-                            b_bad[doy] = 1
-        except ReferenceError:
-            print(f"IFOT ERR Pass {item.greta} - {eot[idx].greta}. "
+            ccmdlka = maude_data(support.bot,support.eot,'TR_CCMDLKA',False)
+            for time, value in zip(ccmdlka['data-fmt-1']['times'],
+                                        ccmdlka['data-fmt-1']['values']):
+                ccmdlka_val= int(value)
+                ccmdlka_time= jsontime2cxo(time)
+
+                if (ccmdlka_val == 1 and support.bot < ccmdlka_time < support.eot and
+                    get_nearest_mod(ccmdlka_time) == 'ON'):
+                    a_bad[ccmdlka_time.date[5:8]] = 1
+
+            ccmdlkb = maude_data(support.bot,support.eot,'TR_CCMDLKB',False)
+            for time, value in zip(ccmdlkb['data-fmt-1']['times'],
+                                        ccmdlkb['data-fmt-1']['values']):
+                ccmdlkb_val= int(value)
+                ccmdlkb_time= jsontime2cxo(time)
+
+                if (ccmdlkb_val == 1 and support.bot < ccmdlkb_time < support.eot and
+                    get_nearest_mod(ccmdlkb_time) == 'ON'):
+                    b_bad[ccmdlkb_time.date[5:8]] = 1
+
+        except HTTPError:
+            print(f"IFOT ERR Pass {support.bot.greta} - {support.eot.greta}. "
                   "Stats not processed for this pass.")
 
     data.ssr_tot_pb = ssr_tot_pb
     data.ssr_data = ssr_data
     data.ssr_stats = ssr_stats
-    data.a_bad = a_bad
-    data.b_bad = b_bad
-    data.tx_a_on = tx_a_on
-    data.tx_b_on = tx_b_on
+    data.a_bad, data.b_bad = a_bad, b_bad
+    data.tx_a_on, data.tx_b_on = tx_a_on, tx_b_on
+    data.num_supports = len(supports_list)
+
+    bot, eot= [],[]
+    for support in supports_list:
+        bot.append(support.bot)
+        eot.append(support.eot)
     data.bot = bot
     data.eot = eot
-    data.num_supports = num_supports
 
 
 def get_ssr_beat_reports(user_vars,data):
     "Parse SSR beat reports into data"
-
-    print("Generating SSR beat report data...")
-
-    # start = DateTime(f"{user_vars.start_year}:001")
-    # end = DateTime(f"{user_vars.start_year}:{user_vars.doy_end}")
+    print("\nGenerating SSR beat report data...")
 
     start= user_vars.ts
     end= user_vars.tp
@@ -844,6 +793,7 @@ def build_ssr_dropdown(user_vars,data):
     "Build the SSR stats dropdown menus"
 
     dropdown_string = HTML_HEADER
+    url= ""
 
     plot_title_dict = {
         'A': ['SSR-A Current Week Time Strip','SSR-A Year-to-Date By Submodule',
