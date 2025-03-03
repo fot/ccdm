@@ -16,13 +16,14 @@ def ska_data_request(ts, tp, msid, high_rate = False):
     return data
 
 
-def maude_data_request(ts,tp,msid):
+def maude_data_request(ts,tp,msid,print_message=True):
     "Requests a particular MSID for an interval from MAUDE"
-    print(f"""   - Requesting MAUDE data for "{msid}" ({ts} thru {tp})...""")
+    if print_message:
+        print(f"""   - Requesting MAUDE data for "{msid}" ({ts} thru {tp})...""")
     ts.format = "yday"
     tp.format = "yday"
     base_url = "https://occweb.cfa.harvard.edu/maude/mrest/FLIGHT/msid.json?m="
     url = base_url + msid + "&ts=" +str(ts) + "&tp=" + str(tp)
-    response = urllib.request.urlopen(url)
-    html = response.read()
+    with urllib.request.urlopen(url) as response:
+        html = response.read()
     return json.loads(html)
