@@ -8,16 +8,10 @@ def get_obc_report_dirs(user_vars):
     "Generate list of OBC error report files"
     print("OBC Error Detection...")
     print("   - Building OBC Error Log report directory list...")
-    start_date = datetime.strptime(
-        f"{user_vars.start_year}:{user_vars.doy_start}:000000","%Y:%j:%H%M%S"
-        )
-    end_date = datetime.strptime(
-        f"{user_vars.end_year}:{user_vars.doy_end}:235959","%Y:%j:%H%M%S"
-        )
-    root_folder = (
-        "/share/FOT/engineering/flight_software/OBC_Error_Log_Dumps"
-        )
-    full_file_list, file_list = ([] for i in range(2))
+    start_date= user_vars.ts.datetime
+    end_date= user_vars.tp.datetime
+    root_folder= "/share/FOT/engineering/flight_software/OBC_Error_Log_Dumps"
+    full_file_list,file_list= ([] for i in range(2))
 
     for year_diff in range((end_date.year-start_date.year)+1):
         year = start_date.year + year_diff

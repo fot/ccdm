@@ -3,46 +3,29 @@ v1.6 Change Notes:
  - Improves SSR rollover detection
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime,timezone
 import urllib.request
-from urllib.error import HTTPError
-import json
-from pathlib import Path
 from os import system
 import warnings
 import time
 import pandas as pd
-import numpy as np
-from dataclasses import dataclass
 from cxotime import CxoTime
-from Chandra.Time import DateTime
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from components.html_parts import HTML_HEADER, HTML_SCRIPT
-from components.data_requests import maude_data_request as maude_data
-from components.spurious_cmd_lock_detection import (
-    spurious_cmd_lock_detection, write_spurious_cmd_locks)
 from components.obc_error_detection import (
     get_obc_report_dirs, get_obc_error_reports, write_obc_errors)
 from components.vcdu_rollover_detection import vcdu_rollover_detection
 from components.limit_violation_detection import (
     get_limit_report_dirs, get_limit_reports, write_limit_violations)
 from components.eia_sequencer_selftest_detection import sequencer_selftest_detection
-from components.ssr_rollover_detection import ssr_rollover_detection
 from components.scs107_detection import scs107_detection
-from components.misc import create_dir
+from components.misc import create_dir,HTML_HEADER,HTML_SCRIPT
+from components.ssr import (get_ssr_data,get_ssr_beat_reports,ssr_rollover_detection,
+                            make_ssr_by_submod,make_ssr_by_doy,make_ssr_full)
+from components.receiver import get_receiver_data,spurious_cmd_lock_detection,write_spurious_cmd_locks
 warnings.filterwarnings('ignore')
 
 
 class DataObject:
     "Empty data object to save data to"
-
-@dataclass
-class SupportTimes:
-    "dataclass for support times"
-    bot: None
-    eot: None
-
 
 class UserVariables:
     "User defined variables"
@@ -52,7 +35,7 @@ class UserVariables:
         self.get_end_date()
         self.get_dir_path()
         self.get_ssr_prime()
-        self.get_times()
+        # self.get_times()
         self.get_major_events()
         self.get_cdme_performance_events()
         self.get_rf_performance_events()
@@ -63,30 +46,36 @@ class UserVariables:
     def get_start_date(self):
         "User input for start date"
         while True:
-            start_date_input= input('Enter the START date YYYY:DOY: ')
-            start_year, start_doy= start_date_input[:4], start_date_input[-3:]
-            if ((len(str(start_date_input)) == 8) and
-                (2000 <= int(start_year) <= int(datetime.now(timezone.utc).year)) and
-                (1 <= int(start_doy) <= 366)):
+            user_input= input('Enter the START date YYYY:DOY: ')
+            try:
+                ts= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:00:00:00.000")
+            except ValueError:
+                print(f' - Input "{user_input}" was not in the correct format, try again.')
+                continue
+
+            if ((2001 <= ts.datetime.year <= datetime.now(timezone.utc).year) and
+                (len(user_input) == 8) and (1 <= int(ts.datetime.strftime("%j")) <= 366)):
                 break
-            print(f'Input "{start_date_input}" was invalid, try again.')
-        self.doy_start= start_doy
-        self.start_year= start_year
-        self.ts = CxoTime(f"{start_year}:{start_doy}:00:00:00")
+            print(f' - Input "{user_input}" was not a valid date, try again.')
+
+        self.ts= ts
 
     def get_end_date(self):
         "User input for end date"
         while True:
-            end_date_input= input('Enter the END date YYYY:DOY: ')
-            end_year, end_doy= end_date_input[:4], end_date_input[-3:]
-            if ((len(str(end_date_input)) == 8) and
-                (2000 <= int(end_year) <= int(datetime.now(timezone.utc).year)) and
-                (1 <= int(end_doy) <= 366)):
+            user_input= input('Enter the END date YYYY:DOY: ')
+            try:
+                tp= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:23:59:59.999")
+            except ValueError:
+                print(f' - Input "{user_input}" was not in the correct format, try again.')
+                continue
+
+            if ((2001 <= self.ts.datetime.year <= tp.datetime.year) and
+                (len(user_input) == 8) and (1 <= int(tp.datetime.strftime("%j")) <= 366)):
                 break
-            print(f'Input "{end_date_input}" was invalid, try again.')
-        self.doy_end= end_doy
-        self.end_year= end_year
-        self.tp = CxoTime(f"{end_year}:{end_doy}:23:59:59.999")
+            print(f' - Input "{user_input}" was invalid, try again.')
+
+        self.tp= tp
 
     def get_dir_path(self):
         "User input for set directory"
@@ -97,11 +86,6 @@ class UserVariables:
         "User input for SSR prime"
         self.ssr_prime = ["A","2025:032:03:34:11"]
         print(f"Prime SSR is set at: {self.ssr_prime}")
-
-    def get_times(self):
-        "Generates CxoTime objects from user inputs"
-        self.ts = CxoTime(f"{self.start_year}:{self.doy_start}:00:00:00")
-        self.tp = CxoTime(f"{self.end_year}:{self.doy_end}:23:59:59.999")
 
     def get_major_events(self):
         "User input for Major events this week"
@@ -255,42 +239,6 @@ class UserVariables:
         self.cdme_misc_comments_list = cdme_misc_comments_list
 
 
-def get_tx_on(ts,tp,tx):
-    "returns 'ON' if specified transmitter was on during this interval."
-    ctx = maude_data(ts,tp,f"STAT_5MIN_MIN_CTX{tx}X",False)
-    ctx_val = map(int,ctx['data-fmt-1']['values'])
-    if min(ctx_val) == 0:
-        return 'ON'
-    return 'OFF'
-
-
-def get_support_stats(ts,tp):
-    """
-    Description: returns two lists, one of BOT times, and EOT times in the 
-                 interval as well as the number of supports
-    Input: Times
-    Output: list of strings [<str>], [<str>]
-    """
-    supports_list= np.array([])
-    url= ("https://occweb.cfa.harvard.edu/occweb/web/webapps/ifot/ifot.php?r=home&t=qserver&format="
-          "list&e=PASSPLAN.sched_support_time.ts_bot.eot&columns=type_desc,sheetlink,tstart&tstart="
-          f"{ts}&tstop={tp}&ul=12"
-          )
-
-    with urllib.request.urlopen(url) as response:
-        tmp_data = pd.read_html(response.read())
-
-    for bot, eot in zip(tmp_data[0][4][1:],tmp_data[0][5][1:]):
-        bot_time= CxoTime(bot)
-        eot_time= CxoTime(f"{bot_time.datetime.year}:"
-                          f"{bot_time.datetime.strftime("%j")}:{eot[:2]}:{eot[2:]}")
-        if eot_time < bot_time:
-            eot_time += timedelta(days= 1)
-        supports_list= np.append(supports_list, SupportTimes(bot_time, eot_time))
-
-    return supports_list
-
-
 def get_dsn_drs(ts,tp):
     "return a table of DR reports from iFOT"
     url = (
@@ -300,366 +248,6 @@ def get_dsn_drs(ts,tp):
         )
     with urllib.request.urlopen(url) as response:
         return pd.read_html(response.read())
-
-
-def get_ssr_stats(ts,tp):
-    "returns pandas dataframe of SSR indicators along with a dict of stats"
-    url = (
-        "https://occweb.cfa.harvard.edu/occweb/web/webapps/ifot/ifot.php?r=home&t="
-        "qserver&format=list&columns=linenum&e=PLAYBACK_BCW.ssr.playback_status."
-        f"ts_ssr_start_pb.status_comment&tstart={ts}&stop={tp}&ul=12"
-        )
-    with urllib.request.urlopen(url) as response:
-        df_tmp = pd.read_html(response.read())
-    ssr_a_good = 0
-    ssr_a_bad = 0
-    ssr_b_good = 0
-    ssr_b_bad = 0
-    ssr_active = ''
-    for status,ssr in zip(list(df_tmp[0][2][1:]), list(df_tmp[0][1][1:])):
-        if status == 'OK' :
-            if ssr == 'A':
-                ssr_a_good +=1
-                if 'A' not in ssr_active:
-                    ssr_active += 'A'
-            else:
-                ssr_b_good +=1
-                if 'B' not in ssr_active:
-                    ssr_active += 'B'
-        elif status == 'FAILED' :
-            if ssr == 'A':
-                ssr_a_bad +=1
-                if 'A' not in ssr_active:
-                    ssr_active += 'A'
-            else:
-                ssr_b_bad +=1
-                if 'B' not in ssr_active:
-                    ssr_active += 'B'
-
-    ret_dict = {}
-    ret_dict['SSR-A Good'] = ssr_a_good
-    ret_dict['SSR-A Bad'] = ssr_a_bad
-    ret_dict['SSR-B Good'] = ssr_b_good
-    ret_dict['SSR-B Bad'] = ssr_b_bad
-    ret_dict['SSR Active'] = ssr_active
-
-    return df_tmp, ret_dict
-
-
-def get_nearest_mod(t):
-    """ Returns surrounding M1050 monitor state"""
-    #sanitize timeformats
-    t.format = "yday"
-    base_url = "https://occweb.cfa.harvard.edu/maude/mrest/FLIGHT/msid.json?m=M1050"
-    url = base_url + "&ts=" +str(t) + "&nearest=t"
-    with urllib.request.urlopen(url) as response:
-        data_after= json.loads(response.read())
-    mod_after = int(data_after['data-fmt-1']['values'][0]) # maybe shoudl check timestamp to gate missing data
-    mod_time = jsontime2cxo(str(data_after['data-fmt-1']['times'][0]))
-    after_dt = (mod_time - t)*86400  # CxoTime timedelta is in fractional days for yday format
-    if abs(after_dt) > 60: # Ignore monitor data that is signficantly far away.  Just assume modulation is on during a pass
-        mod_after = 2
-    url = base_url + "&tp=" +str(t) + "&nearest=t"
-    with urllib.request.urlopen(url) as response:
-        data_before= json.loads(response.read())
-    mod_before = int(data_before['data-fmt-1']['values'][0])
-    mod_time = jsontime2cxo(str(data_after['data-fmt-1']['times'][0]))
-    before_dt = (t - mod_time)*86400 # CxoTime timedelta is in fractional days for yday format
-    if abs(before_dt) > 60:
-        mod_before = 2
-    if (mod_before == 1) or (mod_after ==1):
-        return 'OFF'
-    return 'ON'
-
-
-def jsontime2cxo(time_in):
-    "sanitize input"
-    time_str = str(time_in)
-    return (
-        CxoTime(time_str[0:4]+ ':' +time_str[4:7]+':' +time_str[7:9]+':'
-                +time_str[9:11]+':' +time_str[11:13]+'.' +time_str[13:])
-    )
-
-
-def parse_beat_report(fname):
-    """
-    Description: Parse a BEAT file
-    Input: BEAT file directory path
-    Output: Two dicts
-    """
-    ret_dict = {}
-    ret_dict['A'] = []
-    ret_dict['B'] = []
-    cur_state = 'FIND_SSR'
-    # Codes for not found
-    doy = 0
-    submod = -1
-    with open(fname, 'r', encoding="utf-8") as f:
-        # Little state machine
-        for line in f:
-            if line[0:10] ==  'Dump start': # Get DOY
-                parsed = line.split() # should check that
-                fulldate = parsed[3].split('.')
-                doy = int(fulldate[0][-3:])
-            if cur_state == 'FIND_SSR':
-                if line[0:5] == 'SSR =':
-                    cur_ssr = line[6] #Character 'A' or 'B'
-                    cur_state = 'FIND_SUBMOD'
-            elif cur_state == 'FIND_SUBMOD':
-                if line[0:7] =='SubMod ':
-                    cur_state = 'REC_SUBMOD'
-            elif cur_state == 'REC_SUBMOD':
-                if line[0].isdigit():
-                    parsed = line.split()
-                    submod = int(parsed[0])
-                    ret_dict[cur_ssr].append(submod)
-                else:
-                    cur_state = 'FIND_SSR'
-    return doy,ret_dict
-
-
-def make_ssr_by_submod(ssr,year,doy_ts,doy_tp,submod_dict,fname,show,w):
-    """
-    Description: Build SSR By Submodule plot
-    Input: SSR <str>, year <str>, doy_ts <str>, doy_tp <str>, submod_dict {dict}, ....
-    Output: None
-    """
-    fig = make_subplots(rows=4,cols=1,  x_title='SubModule #', y_title='# DBEs')
-    x = list(map(str,submod_dict.keys()))
-    y = [0]*128
-    sm_idx = 0
-    for doys in submod_dict.values():
-        for doy in doys:
-            if doy <= doy_tp:
-                y[sm_idx] +=1
-        sm_idx +=1
-
-    #y = list(map(len,submod_dict.values())) # # of DBE's
-    # Ignoring Submod 127 for now, need to remember why
-    fig.add_trace(go.Bar(x=x[0:32], y=y[0:32],width=.9 ),row=1,col=1)
-    fig.add_trace(go.Bar(x=x[32:64], y=y[32:64],width=.9  ),row=2,col=1)
-    fig.add_trace(go.Bar(x=x[64:96], y=y[64:96],width=.9  ),row=3,col=1)
-    fig.add_trace(go.Bar(x=x[96:127], y=y[96:127],width=.9),row=4,col=1)
-    fig.update_traces( marker_line_color='black',
-                    marker_line_width=1, opacity=0.6)
-
-    fig.update_layout(
-        title=f"{year} SSR-{ssr} Year-to-DOY {doy_tp } DBE by Submodule",
-        autosize=False,
-        width=1040,
-        height=700,
-        showlegend=False,
-        font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
-    )
-    fig.update_layout(barmode='group', xaxis_tickangle=-90)
-    fig.update_yaxes(range=[0, max(y[0:127])+1])
-    if show:
-        fig.show()
-    if w:
-        fig.write_html(fname+'.html',include_plotlyjs='directory', auto_open=False)
-
-
-def make_ssr_by_doy(ssr,year,doy_ts,doy_tp,doy_dict,fname,show,w):
-    fig = make_subplots(rows=1,cols=1,  x_title='DOY #',y_title = '# DBEs')
-    x = list(map(str,doy_dict.keys()))
-    y = list(doy_dict.values()) # # of DBE's
-    fig.add_trace(go.Bar(x=x[doy_ts-1:doy_tp], y=y[doy_ts-1:doy_tp],width=.9 ),row=1,col=1)
-    fig.update_traces( marker_line_color='black',
-                    marker_line_width=1, opacity=0.6)
-
-    fig.update_layout(
-        title=f"{year} SSR-{ssr} DBEs from Day-of-Year {doy_ts} - {doy_tp}",
-        autosize=False,
-        width=1040,
-        height=700,
-        showlegend=False,
-        font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
-    )
-    fig.update_layout(barmode='group', xaxis_tickangle=-90)
-    fig.update_yaxes(range=[0, max(y[doy_ts:doy_tp])+1])
-    if show:
-        fig.show()
-    if w:
-        fig.write_html(fname+'.html',include_plotlyjs='directory', auto_open=False)
-
-
-def make_ssr_full(ssr,year,doy_ts,doy_tp,doy_full,dbe_full,fname,show,w):
-    "Generate SSR Plot"
-    doy_list = [i for i in range(doy_ts,doy_tp)]
-    full_dict = {}
-    for ii in range(1,367):
-        full_dict[ii] = []
-    for cur_doy,dbe in zip(doy_full,dbe_full):
-        full_dict[cur_doy] += dbe[ssr]
-    im = [] # Build up #doy x 128 image of DBEs
-    for doy in doy_list:
-        cur_doy = [0]*128
-        for dbe in full_dict[doy]:
-            cur_doy[dbe] += 1
-        im.append(cur_doy)
-    fig = go.Figure(data=go.Heatmap(
-                   z=im,
-                   x=doy_list,
-                   y=[i for i in range(128)],
-                   transpose=True,
-                   colorscale='Gray'
-                   ))
-    fig.update_xaxes(title_text='Day-of-Year')
-    fig.update_yaxes(title_text='Submodule #')
-    fig.update_layout(
-        title=f"{year} SSR-{ssr} DBEs from Day-of-Year {doy_ts} - {doy_tp}",
-        autosize=False,
-        width=1040,
-        height=700,
-        showlegend=False,
-        font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
-    )
-    if show:
-        fig.show()
-    if w:
-        fig.write_html(fname+'.html',include_plotlyjs='directory', auto_open=False)
-
-
-def get_ssr_data(user_vars,data):
-    "Working on it"
-
-    print("\nFetching SSR Data...")
-
-    ssr_data,ssr_stats = get_ssr_stats(user_vars.ts,user_vars.tp)
-    ssr_tot_pb = ssr_stats['SSR-A Good'] + ssr_stats['SSR-B Good']
-    supports_list= get_support_stats(user_vars.ts,user_vars.tp)
-
-    for support in supports_list:
-        support.bot += timedelta(seconds=300)
-        support.eot -= timedelta(seconds=300)
-
-    # Now iterate through each BOT-EOT interval and look for transitions...
-    a_bad, b_bad = {}, {}
-    tx_a_on, tx_b_on = 0, 0
-
-    for support in supports_list:
-        try:
-            # Transmitter on/off statistics
-            if get_tx_on(support.bot,support.eot,'A') == 'ON':
-                tx_a_on += 1
-            if get_tx_on(support.bot,support.eot,'B') == 'ON':
-                tx_b_on += 1
-
-            # Bad Visibility Processing
-            ccmdlka = maude_data(support.bot,support.eot,'TR_CCMDLKA',False)
-            for time, value in zip(ccmdlka['data-fmt-1']['times'],
-                                        ccmdlka['data-fmt-1']['values']):
-                ccmdlka_val= int(value)
-                ccmdlka_time= jsontime2cxo(time)
-
-                if (ccmdlka_val == 1 and support.bot < ccmdlka_time < support.eot and
-                    get_nearest_mod(ccmdlka_time) == 'ON'):
-                    a_bad[ccmdlka_time.date[5:8]] = 1
-
-            ccmdlkb = maude_data(support.bot,support.eot,'TR_CCMDLKB',False)
-            for time, value in zip(ccmdlkb['data-fmt-1']['times'],
-                                        ccmdlkb['data-fmt-1']['values']):
-                ccmdlkb_val= int(value)
-                ccmdlkb_time= jsontime2cxo(time)
-
-                if (ccmdlkb_val == 1 and support.bot < ccmdlkb_time < support.eot and
-                    get_nearest_mod(ccmdlkb_time) == 'ON'):
-                    b_bad[ccmdlkb_time.date[5:8]] = 1
-
-        except HTTPError:
-            print(f"IFOT ERR Pass {support.bot.greta} - {support.eot.greta}. "
-                  "Stats not processed for this pass.")
-
-    data.ssr_tot_pb = ssr_tot_pb
-    data.ssr_data = ssr_data
-    data.ssr_stats = ssr_stats
-    data.a_bad, data.b_bad = a_bad, b_bad
-    data.tx_a_on, data.tx_b_on = tx_a_on, tx_b_on
-    data.num_supports = len(supports_list)
-
-    bot, eot= [],[]
-    for support in supports_list:
-        bot.append(support.bot)
-        eot.append(support.eot)
-    data.bot = bot
-    data.eot = eot
-
-
-def get_ssr_beat_reports(user_vars,data):
-    "Parse SSR beat reports into data"
-    print("\nGenerating SSR beat report data...")
-
-    start= user_vars.ts
-    end= user_vars.tp
-    diff= end.datetime - start.datetime
-
-    root_folder = "/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/SSR_Short_Reports/"
-    dir_path = Path(root_folder + "/" + str(user_vars.start_year))
-    full_file_list_path = list(x for x in dir_path.rglob('BEAT*.*'))
-    if user_vars.start_year != user_vars.end_year:
-        dir_path = Path(f"{root_folder}/{user_vars.end_year}")
-        full_file_list_path += list(x for x in dir_path.rglob('BEAT*.*'))
-    full_file_list =list(str(x) for x in full_file_list_path)
-
-    file_list = []
-    for day in range(diff.days + 1): #
-        cur_day = start + day
-        cur_year_str = cur_day.yday[0:4]
-        cur_day_str = cur_day.yday[5:8]
-        matching = [s for s in full_file_list if f"BEAT-{cur_year_str}{cur_day_str}" in s]
-        file_list += matching
-
-    doy_dict_a = {}
-    doy_dict_b = {}
-    doy_dict_a_all = {}
-    doy_dict_b_all = {}
-    submod_dict_a = {}
-    submod_dict_b = {}
-    for ii in range(366):  # slice all submods by doy (time on x-axis)
-        doy_dict_a[ii+1] = 0
-        doy_dict_b[ii+1] = 0
-        doy_dict_a_all[ii+1] = []
-        doy_dict_b_all[ii+1] = []
-    submod_dict_a = {}
-    submod_dict_b = {}
-    for ii in range(128):  # slice all days by submods
-        submod_dict_a[ii] = [] # Insert list of days when processing
-        submod_dict_b[ii] = [] # Insert list of days when processing
-
-    doy_full = []
-    dbe_full = []
-    for fnum in range(len(file_list)):
-        doy,dbe =   parse_beat_report(file_list[fnum])
-        if doy != 0:   # very occaisonal midnight spanning results in a BEAT parse error
-            doy_full.append(doy)
-            dbe_full.append(dbe)
-            doy_dict_a_all[doy] += dbe['A']
-            doy_dict_b_all[doy] += dbe['B']
-            doy_dict_a[doy] += len(dbe['A'])
-            doy_dict_b[doy] += len(dbe['B'])
-            for sm in dbe['A']:
-                submod_dict_a[sm].append(doy)
-            for sm in dbe['B']:
-                submod_dict_b[sm].append(doy)
-    # Weekly stats
-    wk_list = []
-    for idx in range(int(user_vars.doy_start),int(user_vars.doy_end)+1):
-        cur_day = doy_dict_b_all[idx]
-        for el in cur_day:
-            wk_list.append(el)
-        cur_day = doy_dict_a_all[idx]
-        for el in cur_day:
-            wk_list.append(el)
-
-    data.doy_full = doy_full
-    data.dbe_full = dbe_full
-    data.doy_dict_a = doy_dict_a
-    data.doy_dict_b = doy_dict_b
-    data.doy_dict_a_all = doy_dict_a_all
-    data.doy_dict_b_all = doy_dict_b_all
-    data.submod_dict_a = submod_dict_a
-    data.submod_dict_b = submod_dict_b
-    data.wk_list = wk_list
 
 
 def build_config_section(user_vars, data):
@@ -795,20 +383,16 @@ def build_ssr_dropdown(user_vars,data):
     dropdown_string = HTML_HEADER
     url= ""
 
-    plot_title_dict = {
+    plot_title_dict= {
         'A': ['SSR-A Current Week Time Strip','SSR-A Year-to-Date By Submodule',
               'SSR-A Year-To-Date By Day-of-Year','SSR-A Year-to-Date Full Time Strip'],
         'B': ['SSR-B Current Week Time Strip','SSR-B Year-to-Date By Submodule',
               'SSR-B Year-To-Date By Day-of-Year','SSR-B Year-to-Date Full Time Strip'],
     }
-    root = (
-        "/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/"
-        "SSR_Weekly_Charts/" + str(user_vars.start_year) + "/"
-    )
-    plot_loc = (
-        "https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/"
-        "Current_CCDM_Files/Weekly_Reports/SSR_Weekly_Charts/" + str(user_vars.start_year)
-    )
+    root= ("/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/"
+            "SSR_Weekly_Charts/" + str(user_vars.ts.datetime.year) + "/")
+    plot_loc= ("https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/Current_CCDM_Files"
+                f"/Weekly_Reports/SSR_Weekly_Charts/{user_vars.ts.datetime.year}")
     dropdown_string = ""
     output_width = 1074
     output_height = 710
@@ -819,74 +403,54 @@ def build_ssr_dropdown(user_vars,data):
             """</div>"""
             """<p></p>"""
             f"""<button type="button" class="collapsible">SSR-{plot_group} Plots</button>"""
-            """<div class="content">\n"""
-            )
+            """<div class="content">\n""")
 
         for plot_title in plot_titles:
 
             if "Current Week Time Strip" in plot_title:
-                fname = (
-                    root + f"SSR_{plot_group}_" + str(user_vars.start_year) + '_' +
-                    str(user_vars.doy_start).zfill(3) + '_Cur_TimeStrip'
-                )
-                make_ssr_full(
-                    plot_group, user_vars.start_year, int(user_vars.doy_start),
-                    int(user_vars.doy_end), data.doy_full, data.dbe_full, fname,
-                    show=False, w=True
-                    )
-                url =  (
-                    f"{plot_loc}/SSR_{plot_group}_{user_vars.start_year}_"
-                    f"{str(user_vars.doy_start).zfill(3)}_Cur_TimeStrip.html"
-                )
+                fname= (f"{root}SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                        f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_Cur_TimeStrip")
+                make_ssr_full(plot_group,user_vars.ts.datetime.year,
+                              int(user_vars.ts.datetime.strftime('%j')),
+                              int(user_vars.tp.datetime.strftime("%j")),
+                              data.doy_full, data.dbe_full, fname,show=False, w=True)
+                url=  (f"{plot_loc}/SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                       f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_Cur_TimeStrip.html")
 
             elif "Year-to-Date By Submodule" in plot_title:
-                fname = (
-                    root + f"SSR_{plot_group}_" + str(user_vars.start_year) + "_" +
-                    str(user_vars.doy_start).zfill(3) + "_YTD_by_SubMod"
-                )
-                make_ssr_by_submod(
-                    plot_group, user_vars.start_year, 1, int(user_vars.doy_end),
-                    getattr(data, f"submod_dict_{plot_group.lower()}"), fname, show=False, w=True
-                    )
-                url =  (
-                    f"{plot_loc}/SSR_{plot_group}_{user_vars.start_year}_"
-                    f"{str(user_vars.doy_start).zfill(3)}_YTD_by_SubMod.html"
-                )
+                fname= (f"{root}SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                        f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_SubMod")
+                make_ssr_by_submod(plot_group,user_vars.ts.datetime.year,1,
+                                   int(user_vars.tp.datetime.strftime("%j")),
+                                   getattr(data,f"submod_dict_{plot_group.lower()}"),
+                                   fname,show=False,w=True)
+                url=  (f"{plot_loc}/SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                       f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_SubMod.html")
 
             elif "Year-To-Date By Day-of-Year" in plot_title:
-                fname = (
-                    root + f"SSR_{plot_group}_" + str(user_vars.start_year) + "_" +
-                    str(user_vars.doy_start).zfill(3) + "_YTD_by_DoY"
-                )
-                make_ssr_by_doy(
-                    plot_group, user_vars.start_year, 1, int(user_vars.doy_end),
-                    getattr(data, f"doy_dict_{plot_group.lower()}"), fname, show=False, w=True
-                    )
-                url =  (
-                    f"{plot_loc}/SSR_{plot_group}_{user_vars.start_year}_"
-                    f"{str(user_vars.doy_start).zfill(3)}_YTD_by_DoY.html"
-                )
+                fname= (f"{root}SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                        f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_DoY")
+                make_ssr_by_doy(plot_group, user_vars.ts.datetime.year,1,
+                                int(user_vars.tp.datetime.strftime("%j")),
+                                getattr(data, f"doy_dict_{plot_group.lower()}"),
+                                fname,show=False,w=True)
+                url= (f"{plot_loc}/SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                      f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_DoY.html")
 
             elif "Year-to-Date Full Time Strip" in plot_title:
-                fname = (
-                    root + f"SSR_{plot_group}_" + str(user_vars.start_year) + '_' +
-                    str(user_vars.doy_start).zfill(3) + '_YTD_Timestrip'
-                )
-                make_ssr_full(
-                    plot_group, user_vars.start_year, 1, int(user_vars.doy_end),
-                    data.doy_full, data.dbe_full, fname, show=False, w=True
-                    )
-                url =  (
-                    f"{plot_loc}/SSR_{plot_group}_{user_vars.start_year}_"
-                    f"{str(user_vars.doy_start).zfill(3)}_YTD_Timestrip.html"
-                )
+                fname= (f"{root}SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                        f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_Timestrip")
+                make_ssr_full(plot_group, user_vars.ts.datetime.year,1,
+                              int(user_vars.tp.datetime.strftime("%j")),
+                              data.doy_full, data.dbe_full, fname, show=False, w=True)
+                url= (f"{plot_loc}/SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                      f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_Timestrip.html")
 
             dropdown_string += (
                 f"""<button type="button" class="collapsible">{plot_title}</button>"""
                 """<div class="content">"""
                 f"""<p><iframe src={url} width=\"{output_width}\" height=\"{output_height}\">"""
-                """</iframe></p></div>\n"""
-                )
+                """</iframe></p></div>\n""")
 
     dropdown_string += "</body></li></ul></div></div>"
 
@@ -910,12 +474,12 @@ def build_ssr_playback_section(user_vars,data):
         """<p><strong>SSR Playback Analysis:</strong></p></div></div>"""
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
-        f"""<li><strong>{data.ssr_stats["SSR-A Good"]}</strong> SSR-A Playbacks were successful """
-        f"""(<strong>{data.ssr_stats["SSR-A Bad"]}</strong> required re-dump)</li>"""
-        f"""<li><strong>{data.ssr_stats["SSR-B Good"]}</strong> SSR-B Playbacks were successful """
-        f"""(<strong>{data.ssr_stats["SSR-B Bad"]}</strong> required re-dump)</li>"""
+        f"""<li><strong>{data.ssr_data.ssra_good}</strong> SSR-A Playbacks were successful """
+        f"""(<strong>{data.ssr_data.ssra_bad}</strong> required re-dump)</li>"""
+        f"""<li><strong>{data.ssr_data.ssrb_good}</strong> SSR-B Playbacks were successful """
+        f"""(<strong>{data.ssr_data.ssrb_bad}</strong> required re-dump)</li>"""
         f"""<li><strong>{len(set(data.wk_list))}</strong> submodules with DBEs were detected in """
-        f"""<strong>{data.ssr_stats["SSR-A Good"]+data.ssr_stats["SSR-B Good"]}</strong> """
+        f"""<strong>{data.ssr_data.ssra_good + data.ssr_data.ssrb_good}</strong> """
         "playbacks</li>"
     )
 
@@ -946,17 +510,17 @@ def build_clock_correlation_section(user_vars):
         """<div class="output_markdown rendered_html output_subarea ">""")
     clock_correlation_link = (
         "https://occweb.cfa.harvard.edu/occweb/web/fot_web/eng/subsystems/ccdm/"
-        f"Clock_Rate/Clock_Correlation{user_vars.start_year}.htm")
+        f"Clock_Rate/Clock_Correlation{user_vars.ts.datetime.year}.htm")
     daily_clock_rate_link = (
         "https://occweb.cfa.harvard.edu/occweb/web/fot_web/eng/subsystems/ccdm/"
-        f"Clock_Rate/images/{user_vars.start_year}_Daily_Clock_Rate.png")
+        f"Clock_Rate/images/{user_vars.ts.datetime.year}_Daily_Clock_Rate.png")
     uso_stability_link = (
         "https://occweb.cfa.harvard.edu/occweb/web/fot_web/eng/subsystems/ccdm/"
         "Clock_Rate/Clock_Rateindex.htm")
     clock_link_dict = {
-        f"Clock Correlation Table {user_vars.start_year}":
+        f"Clock Correlation Table {user_vars.ts.datetime.year}":
             f"""<iframe src={clock_correlation_link} width=\"800\" height=\"700\"></iframe>""",
-        f"Daily Clock Rate {user_vars.start_year}":
+        f"Daily Clock Rate {user_vars.ts.datetime.year}":
             f"""<img src={daily_clock_rate_link} width=\'1000\' height=\"700\"></img>""",}
 
     clock_corr_section += HTML_HEADER
@@ -1020,18 +584,14 @@ def build_report(user_vars,data):
 
     print("Assembling the report...")
 
-    file_title = (
-        """<div class="output_area">"""
-        """<div class="output_markdown rendered_html output_subarea ">"""
-        f"""<p><strong>CCDM Weekly Report from {user_vars.start_year}:"""
-        f"""{user_vars.doy_start} through {user_vars.end_year}:{user_vars.doy_end}"""
-        """</strong></p></div></div>"""
-        )
-    horizontal_line = (
-        """<div class="output_area">"""
-        """<div class="output_markdown rendered_html output_subarea">"""
-        """<hr></div></div>"""
-        )
+    file_title = ("""<div class="output_area"><div class="output_markdown """
+                  f"""rendered_html output_subarea "><p><strong>CCDM Weekly Report from """
+                  f"""{user_vars.ts.datetime.year}:{user_vars.tp.datetime.strftime("%j")} """
+                  f"""through {user_vars.tp.datetime.year}:{user_vars.ts.datetime.strftime("%j")}"""
+                  """</strong></p></div></div>""")
+    horizontal_line = ("""<div class="output_area">"""
+                       """<div class="output_markdown rendered_html output_subarea">"""
+                       """<hr></div></div>""")
 
     config_section = build_config_section(user_vars,data)
     perf_health_section = build_perf_health_section(user_vars)
@@ -1045,14 +605,12 @@ def build_report(user_vars,data):
         horizontal_line + major_event_section + horizontal_line
     )
 
-    file_name = (
-        f"CCDM_Weekly_{user_vars.start_year}{user_vars.doy_start}_"
-        f"{user_vars.end_year}{user_vars.doy_end}.html"
-    )
+    file_name = (f"CCDM_Weekly_{user_vars.ts.datetime.strftime("%Y%j")}"
+                 f"_{user_vars.tp.datetime.strftime("%Y%j")}.html")
 
-    create_dir(f"{user_vars.set_dir}/{user_vars.start_year}")
+    create_dir(f"{user_vars.set_dir}/{user_vars.ts.datetime.year}")
 
-    with open(f"{user_vars.set_dir}/{user_vars.start_year}/{file_name}",
+    with open(f"{user_vars.set_dir}/{user_vars.ts.datetime.year}/{file_name}",
               "w",encoding="utf-8") as file:
         file.write(html_output)
         file.close()
@@ -1064,6 +622,7 @@ def main():
     user_vars = UserVariables()
     get_ssr_data(user_vars,data)
     get_ssr_beat_reports(user_vars,data)
+    get_receiver_data(user_vars,data)
     build_report(user_vars,data)
 
 
