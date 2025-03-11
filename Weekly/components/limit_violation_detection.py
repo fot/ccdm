@@ -9,12 +9,8 @@ def get_limit_report_dirs(user_vars):
     "Generate list of limits.txt report files"
     print("Limit Violation Detection...")
     print("   - Building list of limit reports...")
-    start_date = datetime.strptime(
-        f"{user_vars.start_year}:{user_vars.doy_start}:000000","%Y:%j:%H%M%S"
-        )
-    end_date = datetime.strptime(
-        f"{user_vars.end_year}:{user_vars.doy_end}:235959","%Y:%j:%H%M%S"
-        )
+    start_date= user_vars.ts.datetime
+    end_date= user_vars.tp.datetime
     root_folder = "/share/FOT/engineering/reports/dailies/"
     directory_list = []
     date_diff = timedelta(days=(end_date-start_date).days)
@@ -93,7 +89,7 @@ def write_limit_violations(limit_data):
                             f'<ul><li>({time_item} UTC)  MSID "{msid}", was "{error}" '
                             f'with a measured value of "{state}" with an expected '
                             f'state of "{e_state}".</li></ul>\n')
-                    except BaseException:
+                    except IndexError:
                         if list_item[1] == "COTHIRTD": # MSID COTHIRTD has a different format
                             msid, error, state = list_item[1], list_item[2], list_item[4]
                             return_string += (
