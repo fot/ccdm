@@ -19,6 +19,13 @@ class SupportTimes:
     bot: None
     eot: None
 
+@dataclass
+class SpuriousCmdLockDataPoint:
+    "Data class for spurious cmd lock event data"
+    start_time: None
+    end_time: None
+    receiver: None
+
 
 def jsontime2cxo(time_in):
     "sanitize input"
@@ -94,7 +101,7 @@ def get_support_stats(ts,tp):
 def get_receiver_data(user_vars,data):
     "Working on it"
 
-    print("\nFetching Receiver Data...\n")
+    print("Fetching Receiver Data...\n")
     supports_list= get_support_stats(user_vars.ts,user_vars.tp)
 
     a_bad, b_bad = {}, {}
@@ -150,22 +157,99 @@ def get_receiver_data(user_vars,data):
     data.eot = eot
 
 
-def parse_dsn_comms(user_vars):
+def spurious_cmd_lock_detection(user_vars):
+    "from a know list of comm times, find spurious cmd locks"
+
+    def detect_start(course_start_datetime,data_point):
+        "Detect high rate START of lock data"
+        ts= (CxoTime(course_start_datetime) - timedelta(minutes= 2))
+        tp= (CxoTime(course_start_datetime) + timedelta(minutes= 2))
+        refined_data= ska_data(ts,tp,f"CCMDLK{receiver}",True,print_message= False)
+
+        for r_index, (r_time, r_value) in enumerate(zip(refined_data.times, refined_data.vals)):
+            r_time_object, r_counter = CxoTime(r_time), 0
+            if ((r_value == "LOCK") and (r_index != 0) and
+                (refined_data.vals[r_index - 1] == "NLCK")):
+                for expected_comm in dsn_comm_times:
+                    if not expected_comm[0] < (r_time_object.datetime) < expected_comm[1]:
+                        r_counter += 1
+                if r_counter == len(dsn_comm_times):
+                    data_point.start_time= r_time_object.yday
+
+    def detect_end(course_end_datetime,data_point):
+        "Detect high rate END of lock data"
+        ts= (CxoTime(course_end_datetime) - timedelta(minutes= 2))
+        tp= (CxoTime(course_end_datetime) + timedelta(minutes= 2))
+        refined_data= ska_data(ts,tp,f"CCMDLK{receiver}",True,print_message= False)
+
+        for r_index, (r_time, r_value) in enumerate(zip(refined_data.times, refined_data.vals)):
+            r_time_object, r_counter = CxoTime(r_time), 0
+            if ((r_value == "NLCK") and (refined_data.vals[r_index - 1] == "LOCK") and
+                (r_index != 0) and (data_point.start_time is not None)):
+                for expected_comm in dsn_comm_times:
+                    if not expected_comm[0] < (r_time_object.datetime) < expected_comm[1]:
+                        r_counter += 1
+                if r_counter == len(dsn_comm_times):
+                    data_point.end_time= r_time_object.yday
+
+    # Get DSN comm times
+    dsn_comm_times= parse_dsn_comms(user_vars.ts,user_vars.tp)
+    data_list= []
+
+    for receiver in ("A","B"):
+        print(f"   - Checking for Receiver-{receiver} lock...")
+        data_point= SpuriousCmdLockDataPoint(None, None, receiver)
+        course_data= ska_data(user_vars.ts,user_vars.tp,f"CCMDLK{receiver}")
+
+        for index, (time, value) in enumerate(zip(course_data.times, course_data.vals)):
+            time_object, counter = CxoTime(time), 0
+
+            # Check course data for START of lock
+            if (value == "LOCK") and (course_data.vals[index - 1] == "NLCK") and (index != 0):
+                for expected_comm in dsn_comm_times:
+                    if not expected_comm[0] < (time_object.datetime) < expected_comm[1]:
+                        counter += 1
+                if counter == len(dsn_comm_times):
+                    detect_start(time_object,data_point)
+
+            # Check course data for END of lock
+            elif ((value == "NLCK") and (course_data.vals[index - 1] == "LOCK") and
+                (index != 0) and (data_point.start_time is not None)):
+                for expected_comm in dsn_comm_times:
+                    if not expected_comm[0] < time_object.datetime < expected_comm[1]:
+                        counter += 1
+                if counter == len(dsn_comm_times):
+                    detect_end(time_object,data_point)
+
+            # Collect data_points
+            # Append data_list if last sample /w partially filled data_point.
+            if (index + 1 ==  len(course_data.times) and
+                ((data_point.start_time is not None) or (data_point.end_time is not None))):
+                data_list.append(data_point)
+            # Append data_list if data_point fills, then make a new data_point.
+            elif data_point.start_time is not None and data_point.end_time is not None:
+                data_list.append(data_point)
+                print(f"    - Spurious Command Lock found on Receiver-{receiver} "
+                        f"from {data_point.start_time}z thru {data_point.end_time}z.")
+                data_point= SpuriousCmdLockDataPoint(None, None, receiver)
+
+    return data_list
+
+
+def parse_dsn_comms(ts,tp):
     "Parse the inputted file directory of DSN comms to look for Chandra comms."
-    print(" - Parsing DSN Comm files...")
-    date_range, dsn_comm_times, dsn_comm_dirs = ([] for i in range(3))
-    date_diff = user_vars.tp.datetime - user_vars.ts.datetime
+    dsn_comm_times, dsn_comm_dirs, date_range= ([] for i in range(3))
 
     # Build file list to parse.
-    for user_date in (user_vars.ts, user_vars.tp):
-        week_of_year= user_date.datetime.isocalendar().week
-        year= user_date.datetime.isocalendar().year
-        dsn_comm_dirs.append(
-            "/home/mission/MissionPlanning/DSN/DSNweek/"
-            f"{year}_wk{format_wk(week_of_year)}_all.txt")
+    for year in (ts.datetime.year, tp.datetime.year):
+        for wk in range(1,53):
+            file_path= ("/home/mission/MissionPlanning/DSN/DSNweek/"
+                        f"{year}_wk{format_wk(wk)}_all.txt")
+            if file_path not in dsn_comm_dirs:
+                dsn_comm_dirs.append(file_path)
 
-    for value in range(date_diff.days + 3):
-        date_value = (timedelta(-1) + user_vars.ts + value).strftime("%j")
+    for value in range((tp.datetime - ts.datetime).days + 3):
+        date_value= (timedelta(days= -1) + ts + value).strftime("%j")
         date_range.append(date_value)
 
     for dsn_comm in dsn_comm_dirs:
@@ -174,11 +258,11 @@ def parse_dsn_comms(user_vars):
                 for line in comm_file:
                     if "CHDR" in line:
                         split_line = line.split()
-                        boa_time = datetime.strptime(split_line[3], "%Y:%j:%H:%M:%S.%f")
-                        eoa_time = datetime.strptime(split_line[5], "%Y:%j:%H:%M:%S.%f")
-                        if boa_time.strftime("%j") in date_range:
-                            per_pass = [boa_time - timedelta(hours=0.75),
-                                        eoa_time + timedelta(hours=0.75)]
+                        bot_time= datetime.strptime(split_line[3], "%Y:%j:%H:%M:%S.%f")
+                        eot_time= datetime.strptime(split_line[5], "%Y:%j:%H:%M:%S.%f")
+                        if bot_time.strftime("%j") in date_range:
+                            per_pass = [bot_time - timedelta(days= 0.75/24),
+                                        eot_time + timedelta(days= 0.75/24)]
                             dsn_comm_times.append(per_pass)
         except FileNotFoundError:
             print(f"""   - File: "{dsn_comm}" not found in base directory, skipping file...""")
@@ -186,55 +270,20 @@ def parse_dsn_comms(user_vars):
     return dsn_comm_times
 
 
-def spurious_cmd_lock_detection(user_vars, high_rate = False):
-    "Detect if a spurious command lock occured in date/time range"
-    print("Spurious Command Lock Detection.")
-    dsn_comm_times = parse_dsn_comms(user_vars)
-    spurious_cmd_locks = {}
-
-    for receiver in ("A","B"):
-        print(f" - Checking for Receiver-{receiver} lock...")
-        raw_data = ska_data(user_vars.ts, user_vars.tp, f"CCMDLK{receiver}", high_rate)
-        values, times = raw_data.vals, raw_data.times
-        locked_times = []
-
-        # Purge raw data into dates when receiver was locked only.
-        for time, value in zip(times, values):
-            if value == "LOCK":
-                locked_times.append(CxoTime(time).datetime)
-
-        # Check if times when locked was outside of expected comm
-        for locked_time in locked_times:
-            value_out_of_comm = []
-
-            for expected_comm in dsn_comm_times:
-                if not expected_comm[0] < locked_time < expected_comm[1]:
-                    value_out_of_comm.append(True)
-                else:
-                    value_out_of_comm.append(False)
-
-            if all(i for i in value_out_of_comm):
-                spurious_cmd_locks.setdefault(f"{receiver}",[]).append(locked_time)
-                print(f"   - Spurious Command Lock on Receiver-{receiver} "
-                      f"""found at "{locked_time.strftime("%Y:%j:%H:%M:%S.%f")}z".""")
-
-    return spurious_cmd_locks
-
-
 def write_spurious_cmd_locks(spurious_cmd_locks):
-    """
-    Description: Add all the spurious cmd locks the perf_health_section string
-    Input: spurious_cmd_locks <dict>
-    Ouput: Modified perf_health_section <str>
-    """
+    "write the events found into html string format"
     print("   - Writing Spurious CMD Locks...")
-    return_string = ""
-    for receiver, date_list in spurious_cmd_locks.items():
-        for date in date_list:
-            date_time = date.strftime("%Y:%j:%H:%M:%S.%f")
-            if receiver:
-                return_string += (
+    return_string= ""
+
+    if spurious_cmd_locks:
+        for spurious_cmd_lock in spurious_cmd_locks:
+            receiver=   spurious_cmd_lock.receiver
+            start_time= spurious_cmd_lock.start_time
+            end_time=   spurious_cmd_lock.end_time
+            return_string += (
                     f"<li>Spurious Command Lock found on Receiver-{receiver} "
-                    f"""at {date_time}z</li>\n""")
+                    f"from {start_time}z thru {end_time}z</li>\n")
+
     return_string += "</ul>"
+
     return return_string

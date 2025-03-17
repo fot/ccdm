@@ -5,9 +5,10 @@ import json
 from Ska.engarchive import fetch_eng as fetch
 
 
-def ska_data_request(ts, tp, msid, high_rate = False):
+def ska_data_request(ts,tp,msid,high_rate =False,print_message=True):
     "Requests a particular MSID for an interval from the ska_eng archive"
-    print(f"""   - Requesting SKA data for MSID "{msid}" ({ts} thru {tp})...""")
+    if print_message:
+        print(f"""   - Requesting SKA data for MSID "{msid}" ({ts} thru {tp})...""")
     ts.format = "yday"
     tp.format = "yday"
     fetch.data_source.set("maude")

@@ -85,7 +85,7 @@ def parse_beat_report(fname):
 
 def get_ssr_beat_reports(user_vars,data):
     "Parse SSR beat reports into data"
-    print("\nGenerating SSR beat report data...")
+    print("Generating SSR beat report data...")
 
     start= user_vars.ts
     end= user_vars.tp
@@ -235,7 +235,7 @@ def add_ssr_rollovers(user_vars, rollover_data):
                   f"to SSR-{user_vars.ssr_prime[0]} on {recovery_date}")
 
     else:
-        print(" - No SSR rollover detected.")
+        print("   - No SSR rollover detected.")
 
     return_string += "</li></ul></div></div>"
     return return_string
