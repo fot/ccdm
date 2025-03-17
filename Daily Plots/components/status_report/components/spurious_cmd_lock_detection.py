@@ -74,8 +74,8 @@ def get_spurious_cmd_locks(user_vars,dsn_comm_times):
 
     def detect_start(course_start_datetime,data_point):
         "Detect high rate START of lock data"
-        ts= (CxoTime(course_start_datetime) - timedelta(minutes= 2))
-        tp= (CxoTime(course_start_datetime) + timedelta(minutes= 2))
+        ts= (CxoTime(course_start_datetime) - timedelta(minutes= 5))
+        tp= (CxoTime(course_start_datetime) + timedelta(minutes= 5))
         refined_data= data_request(ts,tp,"SKA High Rate",f"CCMDLK{receiver}")
 
         for r_index, (r_time, r_value) in enumerate(zip(refined_data.times, refined_data.vals)):
@@ -90,8 +90,8 @@ def get_spurious_cmd_locks(user_vars,dsn_comm_times):
 
     def detect_end(course_end_datetime,data_point):
         "Detect high rate END of lock data"
-        ts= (CxoTime(course_end_datetime) - timedelta(minutes= 2))
-        tp= (CxoTime(course_end_datetime) + timedelta(minutes= 2))
+        ts= (CxoTime(course_end_datetime) - timedelta(minutes= 5))
+        tp= (CxoTime(course_end_datetime) + timedelta(minutes= 5))
         refined_data= data_request(ts,tp,"SKA High Rate",f"CCMDLK{receiver}")
 
         for r_index, (r_time, r_value) in enumerate(zip(refined_data.times, refined_data.vals)):
