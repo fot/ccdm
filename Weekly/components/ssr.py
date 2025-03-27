@@ -2,6 +2,7 @@
 
 import pandas as pd
 import urllib
+from datetime import timedelta
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 from pathlib import Path
@@ -19,8 +20,17 @@ class SSRData:
     ssrb_good: None
     ssrb_bad:  None
 
+@dataclass
+class BEATData:
+    "Dataclass for BEAT Data"
+    ssr:       None
+    submodule: None
+    dbe_count: None
+    ts:        None
+    tp:        None
 
-def get_ssr_data(user_vars,data):
+
+def get_ssr_data(user_vars):
     "returns SSRStats Object"
     print("\nFetching SSR Data...")
 
@@ -42,122 +52,106 @@ def get_ssr_data(user_vars,data):
         elif status == "FAILED" and ssr == "B":
             ssr_data.ssrb_bad += 1
 
-    # Record ssr_data to data object
-    data.ssr_data= ssr_data
+    return ssr_data
 
 
-def parse_beat_report(fname):
+def parse_beat_report(beat_dir):
     """
     Description: Parse a BEAT file
     Input: BEAT file directory path
     Output: Two dicts
     """
-    ret_dict = {}
-    ret_dict['A'] = []
-    ret_dict['B'] = []
-    cur_state = 'FIND_SSR'
-    # Codes for not found
-    doy = 0
-    submod = -1
-    with open(fname, 'r', encoding="utf-8") as f:
-        # Little state machine
-        for line in f:
-            if line[0:10] ==  'Dump start': # Get DOY
-                parsed = line.split() # should check that
-                fulldate = parsed[3].split('.')
-                doy = int(fulldate[0][-3:])
-            if cur_state == 'FIND_SSR':
-                if line[0:5] == 'SSR =':
-                    cur_ssr = line[6] #Character 'A' or 'B'
-                    cur_state = 'FIND_SUBMOD'
-            elif cur_state == 'FIND_SUBMOD':
-                if line[0:7] =='SubMod ':
-                    cur_state = 'REC_SUBMOD'
-            elif cur_state == 'REC_SUBMOD':
+    data_point= BEATData(None,None,None,None,None)
+
+    with open(beat_dir, 'r', encoding= "utf-8") as file:
+        cur_state, data_list= "FIND_SSR", []
+        for line in file:
+            if cur_state == "FIND_SSR":
+                if line[0:5] == "SSR =":
+                    data_point.ssr= line[6]
+                    cur_state= "FIND_SUBMOD"
+            elif cur_state == "FIND_SUBMOD":
+                if line[0:7] == "SubMod ":
+                    cur_state= "REC_SUBMOD"
+            elif cur_state == "REC_SUBMOD":
                 if line[0].isdigit():
-                    parsed = line.split()
-                    submod = int(parsed[0])
-                    ret_dict[cur_ssr].append(submod)
+                    split_line= line.split()
+                    data_point.submodule= int(split_line[0])
+                    data_point.dbe_count= int(split_line[3])
+                    data_point.ts=        CxoTime(split_line[4])
+                    data_point.tp=        CxoTime(split_line[5])
                 else:
                     cur_state = 'FIND_SSR'
-    return doy,ret_dict
+
+            # Append data_list if data_point fills up.
+            if ((data_point.ssr is not None) and (data_point.submodule is not None) and
+                (data_point.dbe_count is not None) and (data_point.ts is not None) and
+                (data_point.tp is not None)):
+                data_list.append(data_point)
+                data_point= BEATData(data_point.ssr,None,None,None,None)
+        file.close()
+
+    return data_list
 
 
-def get_ssr_beat_reports(user_vars,data):
+def get_beat_report_dirs(user_vars):
+    "Return a list of <str> of BEAT files to parse."
+    base_path= "/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/SSR_Short_Reports/"
+    return_list= []
+
+    # Get all files in Start Year
+    dir_path= Path(f"{base_path}/{user_vars.ts.datetime.year}")
+    all_beat_dirs= list(x for x in dir_path.rglob('BEAT*.*'))
+
+    # Get all files in End year if Start/End are different.
+    if user_vars.ts.datetime.year != user_vars.tp.datetime.year:
+        dir_path= Path(f"{base_path}/{user_vars.tp.datetime.year}")
+        all_beat_dirs += list(x for x in dir_path.rglob('BEAT*.*'))
+
+    # Convert all entries to strings
+    all_beat_dirs= list(str(x) for x in all_beat_dirs)
+
+    # Return date range if start/stop years don't match.
+    if user_vars.ts.datetime.year != user_vars.tp.datetime.year:
+        for day in range((user_vars.tp.datetime - user_vars.ts.datetime).days + 1):
+            cur_day= user_vars.ts + timedelta(days= day)
+            return_list += (
+                [s for s in all_beat_dirs if f"BEAT-{cur_day.yday[0:4]}{cur_day.yday[5:8]}" in s])
+    # Return from DoY 1 thru end date.
+    else:
+        for day in range(1, int(user_vars.tp.datetime.strftime("%j")) + 1):
+            cur_day= (
+                CxoTime(f"{user_vars.ts.datetime.year}:001:00:00:00") + timedelta(days= day))
+            return_list += (
+                [s for s in all_beat_dirs if f"BEAT-{cur_day.yday[0:4]}{cur_day.yday[5:8]}" in s])
+
+    return return_list
+
+
+def get_ssr_beat_report_data(user_vars):
     "Parse SSR beat reports into data"
     print("Generating SSR beat report data...")
+    all_beat_report_data= []
 
-    start= user_vars.ts
-    end= user_vars.tp
-    diff= end.datetime - start.datetime
+    beat_report_dirs= get_beat_report_dirs(user_vars)
 
-    root_folder = "/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/SSR_Short_Reports/"
-    dir_path = Path(f"{root_folder}/{user_vars.ts.datetime.year}")
-    full_file_list_path = list(x for x in dir_path.rglob('BEAT*.*'))
-    if user_vars.ts.datetime.year != user_vars.tp.datetime.year:
-        dir_path = Path(f"{root_folder}/{user_vars.tp.datetime.year}")
-        full_file_list_path += list(x for x in dir_path.rglob('BEAT*.*'))
-    full_file_list =list(str(x) for x in full_file_list_path)
+    # Parse all beat reports and collect data objects
+    for beat_dir in beat_report_dirs:
+        data_points= parse_beat_report(beat_dir)
+        for data_point in data_points:
+            if data_point is not None:
+                all_beat_report_data.append(data_point)
 
-    file_list = []
-    for day in range(diff.days + 1): #
-        cur_day = start + day
-        cur_year_str = cur_day.yday[0:4]
-        cur_day_str = cur_day.yday[5:8]
-        matching = [s for s in full_file_list if f"BEAT-{cur_year_str}{cur_day_str}" in s]
-        file_list += matching
+    return all_beat_report_data
 
-    doy_dict_a = {}
-    doy_dict_b = {}
-    doy_dict_a_all = {}
-    doy_dict_b_all = {}
-    submod_dict_a = {}
-    submod_dict_b = {}
-    for ii in range(366):  # slice all submods by doy (time on x-axis)
-        doy_dict_a[ii+1] = 0
-        doy_dict_b[ii+1] = 0
-        doy_dict_a_all[ii+1] = []
-        doy_dict_b_all[ii+1] = []
-    submod_dict_a = {}
-    submod_dict_b = {}
-    for ii in range(128):  # slice all days by submods
-        submod_dict_a[ii] = [] # Insert list of days when processing
-        submod_dict_b[ii] = [] # Insert list of days when processing
 
-    doy_full = []
-    dbe_full = []
-    for fnum in range(len(file_list)):
-        doy,dbe =   parse_beat_report(file_list[fnum])
-        if doy != 0:   # very occaisonal midnight spanning results in a BEAT parse error
-            doy_full.append(doy)
-            dbe_full.append(dbe)
-            doy_dict_a_all[doy] += dbe['A']
-            doy_dict_b_all[doy] += dbe['B']
-            doy_dict_a[doy] += len(dbe['A'])
-            doy_dict_b[doy] += len(dbe['B'])
-            for sm in dbe['A']:
-                submod_dict_a[sm].append(doy)
-            for sm in dbe['B']:
-                submod_dict_b[sm].append(doy)
-    # Weekly stats
-    wk_list = []
-    for idx in range(int(user_vars.ts.datetime.strftime('%j')),int(user_vars.tp.datetime.strftime('%j'))+1):
-        cur_day = doy_dict_b_all[idx]
-        for el in cur_day:
-            wk_list.append(el)
-        cur_day = doy_dict_a_all[idx]
-        for el in cur_day:
-            wk_list.append(el)
-
-    data.doy_full = doy_full
-    data.dbe_full = dbe_full
-    data.doy_dict_a = doy_dict_a
-    data.doy_dict_b = doy_dict_b
-    data.doy_dict_a_all = doy_dict_a_all
-    data.doy_dict_b_all = doy_dict_b_all
-    data.submod_dict_a = submod_dict_a
-    data.submod_dict_b = submod_dict_b
-    data.wk_list = wk_list
+def get_wk_list(user_vars,all_beat_report_data):
+    "Generate the number of submodules that had DBEs in date range."
+    wk_list= []
+    for beat_data in all_beat_report_data:
+        if user_vars.ts <= beat_data.ts <= user_vars.tp:
+            wk_list.append(beat_data.submodule)
+    return len(wk_list)
 
 
 def ssr_rollover_detection(user_vars):
@@ -241,104 +235,102 @@ def add_ssr_rollovers(user_vars, rollover_data):
     return return_string
 
 
-def make_ssr_by_submod(ssr,year,doy_ts,doy_tp,submod_dict,fname,show,w):
+def make_ssr_by_submod(ssr,user_vars,all_beat_report_data,ftitle):
     """
     Description: Build SSR By Submodule plot
     Input: SSR <str>, year <str>, doy_ts <str>, doy_tp <str>, submod_dict {dict}, ....
     Output: None
     """
+    root= ("/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/"
+           f"SSR_Weekly_Charts/{user_vars.ts.datetime.year}/")
+    fname= (f"{root}SSR_{ssr}_{user_vars.ts.datetime.year}_"
+            f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_{ftitle}")
     fig = make_subplots(rows=4,cols=1,  x_title='SubModule #', y_title='# DBEs')
-    x = list(map(str,submod_dict.keys()))
-    y = [0]*128
-    sm_idx = 0
-    for doys in submod_dict.values():
-        for doy in doys:
-            if doy <= doy_tp:
-                y[sm_idx] +=1
-        sm_idx +=1
 
-    #y = list(map(len,submod_dict.values())) # # of DBE's
-    # Ignoring Submod 127 for now, need to remember why
-    fig.add_trace(go.Bar(x=x[0:32], y=y[0:32],width=.9 ),row=1,col=1)
-    fig.add_trace(go.Bar(x=x[32:64], y=y[32:64],width=.9  ),row=2,col=1)
-    fig.add_trace(go.Bar(x=x[64:96], y=y[64:96],width=.9  ),row=3,col=1)
-    fig.add_trace(go.Bar(x=x[96:127], y=y[96:127],width=.9),row=4,col=1)
-    fig.update_traces( marker_line_color='black',
-                    marker_line_width=1, opacity=0.6)
+    x, y= list(range(0,128)), [0]*128
+    for beat_data in all_beat_report_data:
+        if beat_data.ssr == ssr:
+            y[beat_data.submodule] += (1 if beat_data.dbe_count else 0)
+
+    fig.add_trace(go.Bar(x= x[0:32],y= y[0:32],width= 0.9),row= 1,col= 1)
+    fig.add_trace(go.Bar(x= x[32:64],y= y[32:64],width= 0.9),row= 2,col= 1)
+    fig.add_trace(go.Bar(x= x[64:96],y= y[64:96],width= 0.9),row= 3,col= 1)
+    fig.add_trace(go.Bar(x= x[96:128],y= y[96:128],width= 0.9),row= 4,col= 1)
+    fig.update_traces(marker_line_color= "black",marker_line_width= 1,opacity= 0.6)
 
     fig.update_layout(
-        title=f"{year} SSR-{ssr} Year-to-DOY {doy_tp } DBE by Submodule",
-        autosize=False,
-        width=1040,
-        height=700,
-        showlegend=False,
-        font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
-    )
-    fig.update_layout(barmode='group', xaxis_tickangle=-90)
+        title= (f"{user_vars.ts.datetime.year} SSR-{ssr} Year-to-DOY "
+                f"{user_vars.tp.datetime.strftime("%j")} DBE by Submodule"),
+        autosize= False,width= 1040,height= 700,showlegend= False,
+        font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"})
+    fig.update_layout(barmode= "group",xaxis_tickangle= -90)
     fig.update_yaxes(range=[0, max(y[0:127])+1])
-    if show:
-        fig.show()
-    if w:
-        fig.write_html(fname+'.html',include_plotlyjs='directory', auto_open=False)
+    fig.write_html(f"{fname}.html",include_plotlyjs= "directory",auto_open= False)
 
 
-def make_ssr_by_doy(ssr,year,doy_ts,doy_tp,doy_dict,fname,show,w):
+def make_ssr_by_doy(ssr,user_vars,all_beat_report_data,ftitle):
     "Generate Plot SSR by DoY"
+    root= ("/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/"
+           f"SSR_Weekly_Charts/{user_vars.ts.datetime.year}/")
+    fname= (f"{root}SSR_{ssr}_{user_vars.ts.datetime.year}_"
+            f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_{ftitle}")
     fig = make_subplots(rows=1,cols=1,  x_title='DOY #',y_title = '# DBEs')
-    x = list(map(str,doy_dict.keys()))
-    y = list(doy_dict.values()) # # of DBE's
-    fig.add_trace(go.Bar(x=x[doy_ts-1:doy_tp], y=y[doy_ts-1:doy_tp],width=.9 ),row=1,col=1)
-    fig.update_traces( marker_line_color='black',
-                    marker_line_width=1, opacity=0.6)
+    doy_tp= int(user_vars.tp.datetime.strftime("%j"))
+    x, y= list(range(1,doy_tp + 1)), [0]*len(list(range(1,doy_tp + 1)))
 
-    fig.update_layout(
-        title=f"{year} SSR-{ssr} DBEs from Day-of-Year {doy_ts} - {doy_tp}",
-        autosize=False,
-        width=1040,
-        height=700,
-        showlegend=False,
-        font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
-    )
-    fig.update_layout(barmode='group', xaxis_tickangle=-90)
-    fig.update_yaxes(range=[0, max(y[doy_ts:doy_tp])+1])
-    if show:
-        fig.show()
-    if w:
-        fig.write_html(fname+'.html',include_plotlyjs='directory', auto_open=False)
+    for beat_data in all_beat_report_data:
+        doy= int(beat_data.ts.datetime.strftime("%j"))
+        if beat_data.ssr == ssr:
+            y[doy] += (1 if beat_data.dbe_count else 0)
+
+    fig.add_trace(go.Bar(x= x,y= y,width=.9 ),row=1,col=1)
+    fig.update_traces(marker_line_color= "black",marker_line_width= 1,opacity= 0.6)
+    fig.update_layout(title= (f"{user_vars.tp.datetime.year} SSR-{ssr} "
+                              f"DBEs from Day-of-Year 1 - {doy_tp}"),
+                      autosize= False,width= 1040,height= 700,showlegend= False,
+                      font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"})
+    fig.update_layout(barmode= "group",xaxis_tickangle= -90)
+    fig.update_yaxes(range= [0, max(y) + 1])
+    fig.write_html(f"{fname}.html",include_plotlyjs= "directory",auto_open= False)
 
 
-def make_ssr_full(ssr,year,doy_ts,doy_tp,doy_full,dbe_full,fname,show,w):
+def make_ssr_full(ssr,user_vars,all_beat_report_data,ftitle,full= False):
     "Generate SSR Plot"
-    doy_list = [i for i in range(doy_ts,doy_tp)]
-    full_dict = {}
-    for ii in range(1,367):
-        full_dict[ii] = []
-    for cur_doy,dbe in zip(doy_full,dbe_full):
-        full_dict[cur_doy] += dbe[ssr]
-    im = [] # Build up #doy x 128 image of DBEs
-    for doy in doy_list:
-        cur_doy = [0]*128
-        for dbe in full_dict[doy]:
-            cur_doy[dbe] += 1
-        im.append(cur_doy)
-    fig = go.Figure(data=go.Heatmap(
-                   z=im,
-                   x=doy_list,
-                   y=[i for i in range(128)],
-                   transpose=True,
-                   colorscale='Gray'
-                   ))
+    root= ("/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/"
+           f"SSR_Weekly_Charts/{user_vars.ts.datetime.year}/")
+    fname= (f"{root}SSR_{ssr}_{user_vars.ts.datetime.year}_"
+            f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_{ftitle}")
+    doy_ts= int(user_vars.ts.datetime.strftime('%j'))
+    doy_tp= int(user_vars.tp.datetime.strftime("%j"))
+
+    im = [] # Build up #doy x 128 image 7x list() x 128 list()
+    for doy in range((1 if full else doy_ts), doy_tp + 1):
+        im.append([0]*128)
+
+    for beat_data in all_beat_report_data:
+        doy= int(beat_data.ts.datetime.strftime('%j'))
+
+        if beat_data.ssr == ssr:
+            if full:
+                im[doy][beat_data.submodule] += 1
+            elif user_vars.ts <= beat_data.ts <= user_vars.tp:
+                im[doy - doy_ts][beat_data.submodule] += 1
+
+    fig = go.Figure(data= go.Heatmap(
+                z= im,
+                x= list(range(1 if full else doy_ts, doy_tp + 1)),
+                y= list(range(128)),
+                transpose=True,
+                colorscale='Gray'
+                ))
     fig.update_xaxes(title_text='Day-of-Year')
     fig.update_yaxes(title_text='Submodule #')
     fig.update_layout(
-        title=f"{year} SSR-{ssr} DBEs from Day-of-Year {doy_ts} - {doy_tp}",
+        title= (f"{user_vars.ts.datetime.year} SSR-{ssr} "
+                f"DBEs from Day-of-Year {1 if full else doy_ts} - {doy_tp}"),
         autosize=False,
-        width=1040,
-        height=700,
-        showlegend=False,
+        width=1040, height=700, showlegend=False,
         font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
     )
-    if show:
-        fig.show()
-    if w:
-        fig.write_html(fname+'.html',include_plotlyjs='directory', auto_open=False)
+    fig.write_html(f"{fname}.html",include_plotlyjs='directory', auto_open=False)
+
