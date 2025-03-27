@@ -12,6 +12,8 @@ from components.data_requests import ska_data_request as ska_data
 from components.data_requests import maude_data_request as maude_data
 from components.misc import format_wk
 
+class DataObject:
+    "Empty data object to save data to"
 
 @dataclass
 class SupportTimes:
@@ -88,21 +90,25 @@ def get_support_stats(ts,tp):
         tmp_data = pd.read_html(response.read())
 
     for bot, eot in zip(tmp_data[0][4][1:],tmp_data[0][5][1:]):
-        bot_time= CxoTime(bot)
-        eot_time= CxoTime(f"{bot_time.datetime.year}:"
-                          f"{bot_time.datetime.strftime("%j")}:{eot[:2]}:{eot[2:]}")
-        if eot_time < bot_time:
-            eot_time += timedelta(days= 1)
-        supports_list= np.append(supports_list, SupportTimes(bot_time, eot_time))
+        try:
+            bot_time= CxoTime(bot)
+            eot_time= CxoTime(f"{bot_time.datetime.year}:"
+                            f"{bot_time.datetime.strftime("%j")}:{eot[:2]}:{eot[2:]}")
+            if eot_time < bot_time:
+                eot_time += timedelta(days= 1)
+            supports_list= np.append(supports_list, SupportTimes(bot_time, eot_time))
+        except ValueError:
+            print("Error! Skipping data point.")
 
     return supports_list
 
 
-def get_receiver_data(user_vars,data):
+def get_receiver_data(user_vars):
     "Working on it"
 
     print("Fetching Receiver Data...\n")
     supports_list= get_support_stats(user_vars.ts,user_vars.tp)
+    data = DataObject()
 
     a_bad, b_bad = {}, {}
     tx_a_on, tx_b_on = 0, 0
@@ -155,6 +161,8 @@ def get_receiver_data(user_vars,data):
         eot.append(support.eot)
     data.bot = bot
     data.eot = eot
+
+    return data
 
 
 def spurious_cmd_lock_detection(user_vars):

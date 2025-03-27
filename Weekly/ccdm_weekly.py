@@ -18,14 +18,12 @@ from components.limit_violation_detection import (
 from components.eia_sequencer_selftest_detection import sequencer_selftest_detection
 from components.scs107_detection import scs107_detection
 from components.misc import create_dir,HTML_HEADER,HTML_SCRIPT
-from components.ssr import (get_ssr_data,get_ssr_beat_reports,ssr_rollover_detection,
-                            make_ssr_by_submod,make_ssr_by_doy,make_ssr_full)
-from components.receiver import get_receiver_data,spurious_cmd_lock_detection,write_spurious_cmd_locks
+from components.ssr import (get_ssr_data, get_ssr_beat_report_data, ssr_rollover_detection,
+                            make_ssr_by_submod, make_ssr_by_doy, make_ssr_full, get_wk_list)
+from components.receiver import (get_receiver_data, spurious_cmd_lock_detection,
+                                 write_spurious_cmd_locks)
 warnings.filterwarnings('ignore')
 
-
-class DataObject:
-    "Empty data object to save data to"
 
 class UserVariables:
     "User defined variables"
@@ -35,7 +33,6 @@ class UserVariables:
         self.get_end_date()
         self.get_dir_path()
         self.get_ssr_prime()
-        # self.get_times()
         self.get_major_events()
         self.get_cdme_performance_events()
         self.get_rf_performance_events()
@@ -377,111 +374,76 @@ def build_perf_health_section(user_vars):
     return perf_health_section
 
 
-def build_ssr_dropdown(user_vars,data):
+def build_ssr_dropdown(user_vars, all_beat_report_data):
     "Build the SSR stats dropdown menus"
-
-    dropdown_string = HTML_HEADER
-    url= ""
-
     plot_title_dict= {
-        'A': ['SSR-A Current Week Time Strip','SSR-A Year-to-Date By Submodule',
-              'SSR-A Year-To-Date By Day-of-Year','SSR-A Year-to-Date Full Time Strip'],
-        'B': ['SSR-B Current Week Time Strip','SSR-B Year-to-Date By Submodule',
-              'SSR-B Year-To-Date By Day-of-Year','SSR-B Year-to-Date Full Time Strip'],
+        "A": ["SSR-A Current Week Time Strip","SSR-A Year-to-Date By Submodule",
+              "SSR-A Year-To-Date By Day-of-Year","SSR-A Year-to-Date Full Time Strip"],
+        "B": ["SSR-B Current Week Time Strip","SSR-B Year-to-Date By Submodule",
+              "SSR-B Year-To-Date By Day-of-Year","SSR-B Year-to-Date Full Time Strip"],
     }
-    root= ("/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/"
-            "SSR_Weekly_Charts/" + str(user_vars.ts.datetime.year) + "/")
     plot_loc= ("https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/Current_CCDM_Files"
                 f"/Weekly_Reports/SSR_Weekly_Charts/{user_vars.ts.datetime.year}")
-    dropdown_string = ""
-    output_width = 1074
-    output_height = 710
+    dropdown_string, url= "",""
+    output_width, output_height= 1074, 710
 
-    for plot_group, plot_titles in plot_title_dict.items():
-
+    for ssr, plot_titles in plot_title_dict.items():
         dropdown_string += (
             """</div>"""
             """<p></p>"""
-            f"""<button type="button" class="collapsible">SSR-{plot_group} Plots</button>"""
+            f"""<button type="button" class="collapsible">SSR-{ssr} Plots</button>"""
             """<div class="content">\n""")
 
         for plot_title in plot_titles:
-
             if "Current Week Time Strip" in plot_title:
-                fname= (f"{root}SSR_{plot_group}_{user_vars.ts.datetime.year}_"
-                        f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_Cur_TimeStrip")
-                make_ssr_full(plot_group,user_vars.ts.datetime.year,
-                              int(user_vars.ts.datetime.strftime('%j')),
-                              int(user_vars.tp.datetime.strftime("%j")),
-                              data.doy_full, data.dbe_full, fname,show=False, w=True)
-                url=  (f"{plot_loc}/SSR_{plot_group}_{user_vars.ts.datetime.year}_"
-                       f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_Cur_TimeStrip.html")
-
+                make_ssr_full(ssr,user_vars,all_beat_report_data,"Cur_TimeStrip")
+                url=  (f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_"
+                       f"{user_vars.ts.datetime.strftime("%j").zfill(3)}_Cur_TimeStrip.html")
             elif "Year-to-Date By Submodule" in plot_title:
-                fname= (f"{root}SSR_{plot_group}_{user_vars.ts.datetime.year}_"
-                        f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_SubMod")
-                make_ssr_by_submod(plot_group,user_vars.ts.datetime.year,1,
-                                   int(user_vars.tp.datetime.strftime("%j")),
-                                   getattr(data,f"submod_dict_{plot_group.lower()}"),
-                                   fname,show=False,w=True)
-                url=  (f"{plot_loc}/SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                make_ssr_by_submod(ssr,user_vars,all_beat_report_data,"YTD_by_SubMod")
+                url=  (f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_"
                        f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_SubMod.html")
-
             elif "Year-To-Date By Day-of-Year" in plot_title:
-                fname= (f"{root}SSR_{plot_group}_{user_vars.ts.datetime.year}_"
-                        f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_DoY")
-                make_ssr_by_doy(plot_group, user_vars.ts.datetime.year,1,
-                                int(user_vars.tp.datetime.strftime("%j")),
-                                getattr(data, f"doy_dict_{plot_group.lower()}"),
-                                fname,show=False,w=True)
-                url= (f"{plot_loc}/SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                make_ssr_by_doy(ssr,user_vars,all_beat_report_data,"YTD_by_DoY")
+                url= (f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_"
                       f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_DoY.html")
-
             elif "Year-to-Date Full Time Strip" in plot_title:
-                fname= (f"{root}SSR_{plot_group}_{user_vars.ts.datetime.year}_"
-                        f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_Timestrip")
-                make_ssr_full(plot_group, user_vars.ts.datetime.year,1,
-                              int(user_vars.tp.datetime.strftime("%j")),
-                              data.doy_full, data.dbe_full, fname, show=False, w=True)
-                url= (f"{plot_loc}/SSR_{plot_group}_{user_vars.ts.datetime.year}_"
+                make_ssr_full(ssr,user_vars,all_beat_report_data,"YTD_Timestrip",True)
+                url= (f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_"
                       f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_Timestrip.html")
-
             dropdown_string += (
                 f"""<button type="button" class="collapsible">{plot_title}</button>"""
                 """<div class="content">"""
                 f"""<p><iframe src={url} width=\"{output_width}\" height=\"{output_height}\">"""
                 """</iframe></p></div>\n""")
-
     dropdown_string += "</body></li></ul></div></div>"
 
     return dropdown_string
 
 
-def build_ssr_playback_section(user_vars,data):
+def build_ssr_playback_section(user_vars, ssr_data, all_beat_report_data):
     "Build the SSR playback section of the report"
 
-    plot_loc = (
-        "https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/"
-        "Current_CCDM_Files/Weekly_Reports/SSR_Weekly_Charts/"
-        )
-    plot_explainer_pptx = (
-        "https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/"
-        "Current_CCDM_Files/Weekly_Reports/SSR_Weekly_Charts/SSR_Timestrip_Chart_Explainer.pptx"
-        )
+    plot_loc = ("https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/"
+                "Current_CCDM_Files/Weekly_Reports/SSR_Weekly_Charts/")
+
+    plot_explainer_pptx = ("https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/"
+                           "Current_CCDM_Files/Weekly_Reports/SSR_Weekly_Charts/"
+                           "SSR_Timestrip_Chart_Explainer.pptx")
+
     ssr_playback_section = (
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
         """<p><strong>SSR Playback Analysis:</strong></p></div></div>"""
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
-        f"""<li><strong>{data.ssr_data.ssra_good}</strong> SSR-A Playbacks were successful """
-        f"""(<strong>{data.ssr_data.ssra_bad}</strong> required re-dump)</li>"""
-        f"""<li><strong>{data.ssr_data.ssrb_good}</strong> SSR-B Playbacks were successful """
-        f"""(<strong>{data.ssr_data.ssrb_bad}</strong> required re-dump)</li>"""
-        f"""<li><strong>{len(set(data.wk_list))}</strong> submodules with DBEs were detected in """
-        f"""<strong>{data.ssr_data.ssra_good + data.ssr_data.ssrb_good}</strong> """
-        "playbacks</li>"
-    )
+        f"""<li><strong>{ssr_data.ssra_good}</strong> SSR-A Playbacks were successful """
+        f"""(<strong>{ssr_data.ssra_bad}</strong> required re-dump)</li>"""
+        f"""<li><strong>{ssr_data.ssrb_good}</strong> SSR-B Playbacks were successful """
+        f"""(<strong>{ssr_data.ssrb_bad}</strong> required re-dump)</li>"""
+        f"""<li><strong>{get_wk_list(user_vars,all_beat_report_data)}</strong> submodules """
+        f"""with DBEs were detected in <strong>{ssr_data.ssra_good + ssr_data.ssrb_good}"""
+        """</strong> playbacks</li>""")
 
     ssr_playback_section += (
         """<div class="output_area">"""
@@ -490,10 +452,13 @@ def build_ssr_playback_section(user_vars,data):
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
         f"""<li><a href="{plot_loc}">SSR DBE Plot Archive</a> | """
-        f"""<a href="{plot_explainer_pptx}">SSR DBE Plot Archive</a></li>"""
-    )
+        f"""<a href="{plot_explainer_pptx}">SSR DBE Plot Archive</a></li>""")
 
-    ssr_playback_section += build_ssr_dropdown(user_vars,data)
+    if user_vars.ts.datetime.year == user_vars.tp.datetime.year:
+        ssr_playback_section += build_ssr_dropdown(user_vars, all_beat_report_data)
+    else:
+        ssr_playback_section += ("<p><li>SSR Plots are unavaliable for a date "
+                                 "range spanning a new year.</p></li></div>")
     ssr_playback_section += "</body></li></ul></div></div>"
 
     return ssr_playback_section
@@ -579,27 +544,26 @@ def build_major_events_section(user_vars):
     return major_event_section
 
 
-def build_report(user_vars,data):
-    "doc string"
-
+def build_report(user_vars, ssr_data, all_beat_report_data, receiver_data):
+    "Build the report using all queried data."
     print("Assembling the report...")
 
-    file_title = ("""<div class="output_area"><div class="output_markdown """
+    file_title= ("""<div class="output_area"><div class="output_markdown """
                   f"""rendered_html output_subarea "><p><strong>CCDM Weekly Report from """
                   f"""{user_vars.ts.datetime.year}:{user_vars.tp.datetime.strftime("%j")} """
                   f"""through {user_vars.tp.datetime.year}:{user_vars.ts.datetime.strftime("%j")}"""
                   """</strong></p></div></div>""")
-    horizontal_line = ("""<div class="output_area">"""
+    horizontal_line= ("""<div class="output_area">"""
                        """<div class="output_markdown rendered_html output_subarea">"""
                        """<hr></div></div>""")
 
-    config_section = build_config_section(user_vars,data)
-    perf_health_section = build_perf_health_section(user_vars)
-    ssr_playback_section = build_ssr_playback_section(user_vars,data)
-    clock_correlation_section = build_clock_correlation_section(user_vars)
-    major_event_section = build_major_events_section(user_vars)
+    config_section= build_config_section(user_vars, receiver_data)
+    perf_health_section= build_perf_health_section(user_vars)
+    ssr_playback_section= build_ssr_playback_section(user_vars, ssr_data, all_beat_report_data)
+    clock_correlation_section= build_clock_correlation_section(user_vars)
+    major_event_section= build_major_events_section(user_vars)
 
-    html_output = (
+    html_output= (
         file_title + horizontal_line + config_section + horizontal_line + perf_health_section +
         horizontal_line + ssr_playback_section + horizontal_line + clock_correlation_section +
         horizontal_line + major_event_section + horizontal_line
@@ -618,12 +582,11 @@ def build_report(user_vars,data):
 
 def main():
     "Main execution"
-    data = DataObject()
     user_vars = UserVariables()
-    get_ssr_data(user_vars,data)
-    get_ssr_beat_reports(user_vars,data)
-    get_receiver_data(user_vars,data)
-    build_report(user_vars,data)
+    ssr_data= get_ssr_data(user_vars)
+    all_beat_report_data= get_ssr_beat_report_data(user_vars)
+    receiver_data= get_receiver_data(user_vars)
+    build_report(user_vars, ssr_data, all_beat_report_data, receiver_data)
 
 
 main()
