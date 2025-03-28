@@ -550,8 +550,8 @@ def build_report(user_vars, ssr_data, all_beat_report_data, receiver_data):
 
     file_title= ("""<div class="output_area"><div class="output_markdown """
                   f"""rendered_html output_subarea "><p><strong>CCDM Weekly Report from """
-                  f"""{user_vars.ts.datetime.year}:{user_vars.tp.datetime.strftime("%j")} """
-                  f"""through {user_vars.tp.datetime.year}:{user_vars.ts.datetime.strftime("%j")}"""
+                  f"""{user_vars.ts.datetime.year}:{user_vars.ts.datetime.strftime("%j")} """
+                  f"""through {user_vars.tp.datetime.year}:{user_vars.tp.datetime.strftime("%j")}"""
                   """</strong></p></div></div>""")
     horizontal_line= ("""<div class="output_area">"""
                        """<div class="output_markdown rendered_html output_subarea">"""
