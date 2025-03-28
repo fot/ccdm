@@ -30,6 +30,14 @@ class BEATData:
     tp:        None
 
 
+def check_attributes(obj):
+    "Check if all attributes of an object are not None"
+    for attr_name in obj.__dict__:
+        if obj.__dict__[attr_name] is None:
+            return False
+    return True
+
+
 def get_ssr_data(user_vars):
     "returns SSRStats Object"
     print("\nFetching SSR Data...")
@@ -55,7 +63,7 @@ def get_ssr_data(user_vars):
     return ssr_data
 
 
-def parse_beat_report(beat_dir):
+def parse_beat_report(beat_dir,user_vars):
     """
     Description: Parse a BEAT file
     Input: BEAT file directory path
@@ -84,9 +92,7 @@ def parse_beat_report(beat_dir):
                     cur_state = 'FIND_SSR'
 
             # Append data_list if data_point fills up.
-            if ((data_point.ssr is not None) and (data_point.submodule is not None) and
-                (data_point.dbe_count is not None) and (data_point.ts is not None) and
-                (data_point.tp is not None)):
+            if ((check_attributes(data_point)) and (data_point.ts <= user_vars.tp)):
                 data_list.append(data_point)
                 data_point= BEATData(data_point.ssr,None,None,None,None)
         file.close()
@@ -119,7 +125,7 @@ def get_beat_report_dirs(user_vars):
                 [s for s in all_beat_dirs if f"BEAT-{cur_day.yday[0:4]}{cur_day.yday[5:8]}" in s])
     # Return from DoY 1 thru end date.
     else:
-        for day in range(1, int(user_vars.tp.datetime.strftime("%j")) + 1):
+        for day in range(0, int(user_vars.tp.datetime.strftime("%j")) + 1):
             cur_day= (
                 CxoTime(f"{user_vars.ts.datetime.year}:001:00:00:00") + timedelta(days= day))
             return_list += (
@@ -137,7 +143,7 @@ def get_ssr_beat_report_data(user_vars):
 
     # Parse all beat reports and collect data objects
     for beat_dir in beat_report_dirs:
-        data_points= parse_beat_report(beat_dir)
+        data_points= parse_beat_report(beat_dir,user_vars)
         for data_point in data_points:
             if data_point is not None:
                 all_beat_report_data.append(data_point)
@@ -281,7 +287,7 @@ def make_ssr_by_doy(ssr,user_vars,all_beat_report_data,ftitle):
     for beat_data in all_beat_report_data:
         doy= int(beat_data.ts.datetime.strftime("%j"))
         if beat_data.ssr == ssr:
-            y[doy] += (1 if beat_data.dbe_count else 0)
+            y[doy - 1] += (1 if beat_data.dbe_count else 0)
 
     fig.add_trace(go.Bar(x= x,y= y,width=.9 ),row=1,col=1)
     fig.update_traces(marker_line_color= "black",marker_line_width= 1,opacity= 0.6)
@@ -312,7 +318,7 @@ def make_ssr_full(ssr,user_vars,all_beat_report_data,ftitle,full= False):
 
         if beat_data.ssr == ssr:
             if full:
-                im[doy][beat_data.submodule] += 1
+                im[doy - 1][beat_data.submodule] += 1
             elif user_vars.ts <= beat_data.ts <= user_vars.tp:
                 im[doy - doy_ts][beat_data.submodule] += 1
 
@@ -333,4 +339,3 @@ def make_ssr_full(ssr,user_vars,all_beat_report_data,ftitle,full= False):
         font={"family":"Courier New, monospace","size":14,"color":"RebeccaPurple"}
     )
     fig.write_html(f"{fname}.html",include_plotlyjs='directory', auto_open=False)
-
