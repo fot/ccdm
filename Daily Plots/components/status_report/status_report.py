@@ -1,6 +1,6 @@
 "Generate the Status Report"
 
-import dataclasses
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from tqdm import tqdm
@@ -18,13 +18,13 @@ from components.status_report.components.sequencer_selftest_detection import (
 from components.status_report.components.scs107_detection import scs107_detection
 
 
-@dataclasses.dataclass
+@dataclass
 class BEATData:
     "Data class for BEAT data"
     file_list: list
     dbe_data: list
 
-@dataclasses.dataclass
+@dataclass
 class BEATDataPoint:
     "Data class for a BEAT report data point."
     ssr: None
@@ -33,13 +33,27 @@ class BEATDataPoint:
     submodule: None
     dbe: None
 
-@dataclasses.dataclass
+@dataclass
 class OBCErrorDataPoint:
     "Data class for an obc error data point."
     doy: None
     time: None
     error_type: None
     error: None
+
+@dataclass
+class TLMCorrptionDataPoint:
+    date: None
+    msid: None
+    value: None
+    transition: None
+
+def check_attributes(obj):
+    "Check if all attributes of an object are not None"
+    for attr_name in obj.__dict__:
+        if obj.__dict__[attr_name] is None:
+            return False
+    return True
 
 
 def generate_status_report(user_vars, auto_gen= False):
@@ -72,22 +86,59 @@ def tlm_corruption_detection(user_vars, file):
     Input: user variables for dates/times
     Output: none
     """
-    print("\nLooking for corrupted datapoints...")
-    corrupted_values= {}
-    msids= {
-        "AORESZ0":["1e14","-1e14"], "AORESZ1":["1e14","-1e14"], 
-        "AORESZ2":["1e14","-1e14"], "AORESZ3":["1e2","-1e14"],
-        "AORESZ4":["1e14","-1e14"], "AORESZ5":["1e2","-1e14"], "AORESZ6":["1e14","-1e14"],
-        "4ACCACL":["CLOS"], "4ACCBCL":["CLOS"], "4ACCAOP":["CLOS"], "4ACCBOP":["CLOS"],
-        "4ALL1ALK":["LOCK"], "4ALL1BLK":["LOCK"], "4ALL1AUL":["LOCK"], "4ALL1BUL":["LOCK"],
-        "4ALL1ACS":["CLOS"], "4ALL2ACS":["CLOS"], "4ALL1BCS":["CLOS"], "4ALL2BCS":["CLOS"],
-        "4HLL1ACS":["CLOS"], "4HLL1AUL": ["LOCK"], "4HLL1BUL": ["LOCK"], "4HLL1BLK": ["LOCK"],
-        "4HLL1ALK": ["LOCK"],
-        }
-    for msid, bound in tqdm(msids.items(), bar_format= "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
-        corrupted_values[f"{msid}"]= get_corrupted_datapoints(user_vars, msid, bound)
+    corrupted_vals, aca_corrupted_vals= ([] for i in range(2))
+    msids= {"4ACCACL":"CLOS", "4ACCBCL":"CLOS", "4ACCAOP":"CLOS", "4ACCBOP":"CLOS",
+            "4ALL1ALK":"LOCK", "4ALL1BLK":"LOCK", "4ALL1AUL":"LOCK", "4ALL1BUL":"LOCK",
+            "4ALL1ACS":"CLOS", "4ALL2ACS":"CLOS", "4ALL1BCS":"CLOS", "4ALL2BCS":"CLOS",
+            "4HLL1ACS":"CLOS", "4HLL1AUL":"LOCK", "4HLL1BUL":"LOCK", "4HLL1BLK":"LOCK",
+            "4HLL1ALK":"LOCK"}
+    aca_msids= {"AORESZ0":[-1e14,1e14], "AORESZ1":[-1e14,1e14],
+                "AORESZ2":[-1e14,1e14], "AORESZ3":[-1e14,1e14],
+                "AORESZ4":[-1e14,1e14], "AORESZ5":[-1e14,1e14], "AORESZ6":[-1e14,1e14]}
 
-    write_corr_report(user_vars, file, corrupted_values, msids)
+    # ACA MSID TLM Corrpution
+    print("\nLooking for corrupted AORESZx datapoints...")
+    for msid, bound in tqdm(aca_msids.items(), bar_format= "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
+        aca_corrupted_vals += aca_corruption_detection(user_vars, msid, bound)
+
+    # All other MSIDs
+    print("\nLooking for corrupted datapoints...")
+    for msid, bound in tqdm(msids.items(), bar_format= "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
+        corrupted_vals += get_corrupted_datapoints(user_vars, msid, bound)
+
+    write_corr_report(user_vars, file, corrupted_vals, aca_corrupted_vals, [msids, aca_msids])
+
+
+def aca_corruption_detection(user_vars, msid, bound):
+    """
+    Description: Generate data for corruption on AORESZx MSIDs
+    Input: user variables for dates/times
+    Output: none
+    """
+    data_list= []
+    raw_data= data_request(user_vars.ts, user_vars.tp, "SKA High Rate", msid)
+
+    for time, val in zip(raw_data.times, raw_data.vals):
+        # Check if MSID value was outside bounds
+        if not bound[0] <= val <= bound[1]:
+            obc_ts= CxoTime(time) - timedelta(seconds= 5)
+            obc_tp= CxoTime(time) + timedelta(seconds= 5)
+            obc_subformat_data= data_request(obc_ts, obc_tp, "SKA High Rate", "COTLRDSF")
+
+            for i, (obc_val) in enumerate(obc_subformat_data.vals):
+                try:
+                    if obc_val == "NORM" and obc_subformat_data.vals[i-1] in ("NONE", "OFFL"):
+                        data_point= TLMCorrptionDataPoint(
+                                        CxoTime(time).datetime, msid, val,
+                                        [obc_subformat_data.vals[i-1], obc_val])
+                except IndexError:
+                    pass
+
+            if check_attributes(data_point):
+                data_list.append(data_point)
+                data_point= TLMCorrptionDataPoint(None, None, None, None)
+
+    return data_list
 
 
 def get_corrupted_datapoints(user_vars, msid, bound):
@@ -96,21 +147,23 @@ def get_corrupted_datapoints(user_vars, msid, bound):
     Input: User Variables, MSID <str>, Bound <list>
     Output: Dict of corrupted data points, format {MSID,["TIME", "DATA"]}
     """
-    corrupted_values = {}
-    raw_data= data_request(user_vars.ts,user_vars.tp,"SKA High Rate",msid)
+    data_list= []
+    raw_data= data_request(user_vars.ts, user_vars.tp, "SKA High Rate", msid)
+    data_point= TLMCorrptionDataPoint(None, None, None, None)
 
-    for data_point, time_point in zip(raw_data.vals, raw_data.times):
-        try:
-            if float(bound[0]) <= data_point or data_point <= float(bound[1]):
-                corrupted_values[CxoTime(time_point)]= data_point
-        except ValueError:
-            if data_point in (bound):
-                corrupted_values[CxoTime(time_point)]= data_point
+    for val, time in zip(raw_data.vals, raw_data.times):
+        # Check if MSID value was outside bound
+        if val == bound:
+            data_point= TLMCorrptionDataPoint(CxoTime(time).datetime, msid, val, False)
 
-    return corrupted_values
+        if check_attributes(data_point):
+            data_list.append(data_point)
+            data_point= TLMCorrptionDataPoint(None, None, None, None)
+
+    return data_list
 
 
-def write_corr_report(user_vars, file, corrupted_values, msids):
+def write_corr_report(user_vars, file, corrupted_vals, aca_corrupted_vals, msids_list):
     """
     Description: Write a txt file with tlm corruption findings.
     Input: User Variables <object>, Corrupted values <dict>, MSIDs <list>
@@ -118,43 +171,43 @@ def write_corr_report(user_vars, file, corrupted_values, msids):
     """
     print(" - Generating telemetry corruption report .txt file...")
     line= "-----------------------------"
-    length_list= []
+    counter= 0
 
-    for item in corrupted_values.values():
-        length_list.append(len(item))
-
+    # Format Section Title
     file.write(
         "Detected corrupted telemetry data points for "
         f"{user_vars.year_start}:{format_doy(user_vars.doy_start)} "
-        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n" +
-        "\n" + line + line + line + "\n"
-    )
-    file.write("MSID(s) monitored (Bound)\n")
-    for index, (msid, bound) in enumerate(msids.items()):
-        try:
-            file.write(
-                f"  {index + 1}) MSID: {msid}, Upper Bound ({bound[0]}) "
-                f"| Lower Bound ({bound[1]})\n"
-                )
-        except IndexError:
-            file.write(f"  {index + 1}) MSID: {msid}, Bound ({bound[0]})\n")
-    file.write("\n" + line + line + line + "\n")
-    file.write("MSID(s) with corruption detected:\n")
-    if not all([i== 0 for i in length_list]):
-        for msid in corrupted_values:
-            if len(corrupted_values[f"{msid}"]) != 0:
-                file.write(
-                    f"""  • MSID: "{msid}" had {len(corrupted_values[f"{msid}"])} """
-                    "corrupted data points...\n"
-                    )
-                for index, (time_item, data) in enumerate(corrupted_values[f"{msid}"].items()):
-                    file.write(
-                        f"   {index + 1}) {time_item.strftime('%Y:%j %H:%M:%S.%f')}z  |  {data}\n")
-    else:
-        file.write("  • No corrupted data points found \U0001F63B.\n")
+        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n "
+        f"\n{line}{line}{line}\nMSID(s) monitored (Bound)\n")
+
+    # Write the MSID(s) and their bounds
+    for (msid, bound) in msids_list[0].items():
+        counter += 1
+        file.write(f"  {counter}) MSID: {msid}, Bound ({bound})\n")
+    for (msid, bound) in msids_list[1].items():
+        counter += 1
+        file.write(f"  {counter}) MSID: {msid}, Lower Bound ({bound[0]:e}) | "
+                   f"Upper Bound {bound[1]:e})\n")
+    file.write(f"\n{line}{line}{line}\nMSID(s) with corruption detected:\n")
+
+    # Write the corrupted values
+    if len(corrupted_vals) != 0:
+        for corrupted_val in corrupted_vals:
+            file.write(f"  - ({corrupted_val.date.strftime("%Y:%j:%H:%M:%S:%f")[:-3]}z) "
+                       f"{corrupted_val.msid}: {corrupted_val.value}")
+
+    # Write the ACA corrupted values
+    if len(aca_corrupted_vals) != 0:
+        for corrupted_val in aca_corrupted_vals:
+            file.write(f"  - ({corrupted_val.date.strftime("%Y:%j:%H:%M:%S:%f")[:-3]}z) "
+                       f"{corrupted_val.msid}: {corrupted_val.value} "
+                       f"({corrupted_val.transition[0]} -> {corrupted_val.transition[1]})\n")
+
+    if len(corrupted_vals) == 0 and len(aca_corrupted_vals) == 0:
+        file.write("\n  - No corrupted data points found \U0001F63B.\n")
 
     file.write("\n  ----------END OF TELEMTRY CORRUPTION----------")
-    file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
+    file.write(f"\n{line}{line}{line}{line}{line}\n{line}{line}{line}{line}{line}\n")
     print(" - Done! Data written to TLM corruption section.")
 
 
