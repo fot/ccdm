@@ -145,7 +145,7 @@ def get_ssr_beat_report_data(user_vars):
     for beat_dir in beat_report_dirs:
         data_points= parse_beat_report(beat_dir,user_vars)
         for data_point in data_points:
-            if data_point is not None:
+            if data_point not in all_beat_report_data:
                 all_beat_report_data.append(data_point)
 
     return all_beat_report_data
