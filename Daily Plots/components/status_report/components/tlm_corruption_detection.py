@@ -42,7 +42,7 @@ def aca_corruption_detection(user_vars, msid, bound):
 
             for i, (obc_val) in enumerate(obc_subformat_data.vals):
                 try:
-                    if obc_val == "NORM" and obc_subformat_data.vals[i-1] in ("NONE", "OFFL"):
+                    if obc_val == "NORM" and obc_subformat_data.vals[i-1] in ("NONE","OFFL","SSR"):
                         data_point= TLMCorrptionDataPoint(
                                         CxoTime(time).datetime, msid, val,
                                         [obc_subformat_data.vals[i-1], obc_val])
@@ -138,9 +138,9 @@ def tlm_corruption_detection(user_vars, file):
             "4ALL1ACS":"CLOS", "4ALL2ACS":"CLOS", "4ALL1BCS":"CLOS", "4ALL2BCS":"CLOS",
             "4HLL1ACS":"CLOS", "4HLL1AUL":"LOCK", "4HLL1BUL":"LOCK", "4HLL1BLK":"LOCK",
             "4HLL1ALK":"LOCK"}
-    aca_msids= {"AORESZ0":[-1e14,1e14], "AORESZ1":[-1e14,1e14],
-                "AORESZ2":[-1e14,1e14], "AORESZ3":[-1e14,1e14],
-                "AORESZ4":[-1e14,1e14], "AORESZ5":[-1e14,1e14], "AORESZ6":[-1e14,1e14]}
+    aca_msids= {"AORESZ0":[-1e07,1e07], "AORESZ1":[-1e07,1e07],
+                "AORESZ2":[-1e07,1e07], "AORESZ3":[-1e07,1e07],
+                "AORESZ4":[-1e07,1e07], "AORESZ5":[-1e07,1e07], "AORESZ6":[-1e07,1e07]}
 
     # ACA MSID TLM Corrpution
     print("\nLooking for corrupted AORESZx datapoints...")

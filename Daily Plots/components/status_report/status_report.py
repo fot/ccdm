@@ -12,6 +12,7 @@ from components.status_report.components.tlm_corruption_detection import tlm_cor
 from components.status_report.components.obc_error_detection import obc_error_detection
 from components.status_report.components.limit_detection import limit_violation_detection
 from components.status_report.components.dbe_detection import dbe_detection
+from components.status_report.components.cmd_processor_reset_detection import cmd_processor_reset_detection
 
 
 def generate_status_report(user_vars, auto_gen= False):
@@ -51,6 +52,7 @@ def misc_detection(user_vars, file):
     ssr_rollover_detection(user_vars,file)
     sequencer_selftest_detection(user_vars,file)
     scs107_detection(user_vars,file)
+    cmd_processor_reset_detection(user_vars,file)
 
     file.write("\n  ----------END OF MISC DETECTION----------")
     file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
