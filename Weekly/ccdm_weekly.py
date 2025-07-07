@@ -339,7 +339,7 @@ def build_perf_health_section(user_vars):
 
         if "CDME" in title:
             obc_error_files = get_obc_report_dirs(user_vars)
-            obc_error_report_data = get_obc_error_reports(obc_error_files)
+            obc_error_report_data = get_obc_error_reports(obc_error_files, user_vars)
 
             if obc_error_report_data:
                 perf_health_section += write_obc_errors(obc_error_report_data)
