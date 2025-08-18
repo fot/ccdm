@@ -5,6 +5,7 @@ import time
 import os
 from os import system, path
 from pathlib import Path
+from datetime import timedelta
 import plotly.graph_objects as go
 import numpy as np
 import pandas as pd
@@ -16,7 +17,7 @@ from plotly.subplots import make_subplots
 from Chandra.Time import DateTime
 from tqdm import tqdm
 from cxotime import CxoTime
-from components.misc import write_html_file, write_csv_file, write_png_file, parse_csv_file
+from components.misc import write_csv_file, write_png_file, parse_csv_file
 from components.pa_bpt_plots import generate_pa_bpt_plots
 from components.average_sbe_submod104_plot import build_sbe_mod104_avg_plot
 from components.sbe_vs_dbe_solar_per_date_plot import build_sbe_vs_dbe_solar_date_plot
@@ -104,9 +105,16 @@ class UserVariables:
 def display_user_instructions(user_vars):
     "Displays instructions on how to run this script properly."
     print("\n--User instructions--")
+    build_dir_structure(user_vars)          # 1
+    beat_tool_instructions(user_vars)       # 2
+    marshall_monthly_instruction(user_vars) # 3
+    file_movement_instruction(user_vars)    # 4
 
+
+def build_dir_structure(user_vars):
+    "Create the biannual directory"
     while True:
-        new_dir = input(
+        new_dir= input(
             "1) Enter new directory to be created with the following name format:\n"
             "   - XX_YYMMM_YYMMM\n\n   Input: "
         )
@@ -121,36 +129,34 @@ def display_user_instructions(user_vars):
         else:
             break
 
-    # Reset set_dir to the newly generated directory.
+    # Reset the cofigured dir
     user_vars.set_dir = user_vars.set_dir + new_dir
 
-    # Make /Output Dir
-    try:
+    try: # Make /Output Dir
         os.mkdir(f"{user_vars.set_dir}/Output/")
     except FileExistsError:
         pass
 
-    # Make /Files/ Dir
-    try:
+    try: # Make /Files/ Dir
         os.mkdir(f"{user_vars.set_dir}/Files/")
     except FileExistsError:
         pass
 
-    # Make /Files/SSR/ Dir
-    try:
+    try: # Make /Files/SSR/ Dir
         os.mkdir(f"{user_vars.set_dir}/Files/SSR/")
     except FileExistsError:
         pass
 
-    # Make //DSN/ Dir
-    try:
+    try: # Make //DSN/ Dir
         os.mkdir(f"{user_vars.set_dir}/Files/DSN/")
     except FileExistsError:
         pass
 
     print(f"""\nConfigured Directory: "{user_vars.set_dir}"\n""")
 
-    # Force user to run BEAT Tool
+
+def beat_tool_instructions(user_vars):
+    "Instruction Section for running the BEAT tool"
     while True:
         input(
             f"""2) Run Beat Tool to generate SSR data for Biannual Period.\n"""
@@ -158,19 +164,49 @@ def display_user_instructions(user_vars):
             """\n     Input DONE once completed: """
         )
 
-        beat_files= ["DBE-dumped-mission-daily.txt","DBE-dumped-mission-submod.txt","DBE-dumped-period-daily.txt",
-                      "DBE-dumped-period-submod.txt","SBE-42-mission-daily.txt","SBE-43-mission-daily.txt",
-                      "SBE-83-mission-daily.txt","SBE-104-mission-daily.txt","SBE-all-mission-daily.txt",
-                      "SBE-all-mission-submod.txt","SBE-all-period-daily.txt","SBE-all-period-submod.txt"]
+        beat_files= ["DBE-dumped-mission-daily.txt","DBE-dumped-mission-submod.txt",
+                    "DBE-dumped-period-daily.txt","DBE-dumped-period-submod.txt",
+                    "SBE-42-mission-daily.txt","SBE-43-mission-daily.txt",
+                    "SBE-83-mission-daily.txt","SBE-104-mission-daily.txt",
+                    "SBE-all-mission-daily.txt","SBE-all-mission-submod.txt",
+                    "SBE-all-period-daily.txt","SBE-all-period-submod.txt"]
 
         if check_if_files_exist(f"{user_vars.set_dir}/Files/SSR/", beat_files):
             print("    - Files exist!\n")
             break
 
-    # Move required files into directories
+
+def marshall_monthly_instruction(user_vars):
+    "Instruction for the Marshall Monthly Files"
+    while True:
+        prompt= ("""3) Copy the applicable Marshall Monthly Files\n"""
+                 f"""    - Copy the follwing files from "//noodle/FOT/operations/"""
+                 f"""Marshall Monthly/{user_vars.start_year} Reports" to """
+                 f"""{user_vars.set_dir}/Files/DSN\n""")
+
+        # Generate list of Marshall Monthly Files names
+        marshall_files= []
+        time_delta= user_vars.tp.datetime - user_vars.ts.datetime
+        for day in range(time_delta.days + 1):
+            current_day= (user_vars.ts + timedelta(days= day)).datetime
+
+            file_title= f"{current_day.strftime('%B')}_{current_day.strftime('%Y')} Report.xlsx"
+            if file_title not in marshall_files:
+                marshall_files.append(file_title)
+                prompt += f"      - {file_title}\n"
+
+        input(f"{prompt}\n      Input DONE once completed: ")
+
+        if check_if_files_exist(f"{user_vars.set_dir}/Files/DSN/", marshall_files):
+            print("    - Files exist!\n")
+            break
+
+
+def file_movement_instruction(user_vars):
+    "Instructions to move the previous period .csv files"
     while True:
         input(
-            f"""3) Copy previous biannual files into "{user_vars.set_dir}" directory.\n"""
+            f"""4) Copy previous biannual files into "{user_vars.set_dir}/Files" directory.\n"""
             "   Rename files as follows:\n"
             """    - "full_mission_maxes.csv" --> "mission_maxes.csv"\n"""
             """    - "full_mission_mins.csv" --> "mission_mins.csv"\n"""
@@ -180,7 +216,7 @@ def display_user_instructions(user_vars):
 
         data_files= ["mission_maxes.csv","mission_mins.csv","mission_means.csv"]
 
-        if check_if_files_exist(user_vars.set_dir, data_files):
+        if check_if_files_exist(f"{user_vars.set_dir}/Files/", data_files):
             print("    - Files exist!\n")
             break
         print("    - Please check files again, they couldn't be found. \U0001F62D\n")
@@ -660,17 +696,17 @@ def generate_report_tables(user_vars):
         "EIACVBV","CSSR1CAV","CSSR2CBV"
         ]
 
-    df_mins = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_mins_LS.csv")
+    df_mins = parse_csv_file(f"{user_vars.set_dir}/Output/biannual_mins_LS.csv")
     tmp = list(df_mins.columns)
     tmp[0] = 'Mission Day'
     df_mins.columns = tmp
 
-    df_means = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_means_LS.csv")
+    df_means = parse_csv_file(f"{user_vars.set_dir}/Output/biannual_means_LS.csv")
     tmp = list(df_means.columns)
     tmp[0] = 'Mission Day'
     df_means.columns = tmp
 
-    df_maxes = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_maxes_LS.csv")
+    df_maxes = parse_csv_file(f"{user_vars.set_dir}/Output/biannual_maxes_LS.csv")
     tmp = list(df_maxes.columns)
     tmp[0] = 'Mission Day'
     df_maxes.columns = tmp
@@ -703,32 +739,32 @@ def generate_full_mission_tables(user_vars):
 
     print(" - Generating Full Mission Table csv(s)...")
 
-    df_means_per = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_means_LS.csv")
+    df_means_per = parse_csv_file(f"{user_vars.set_dir}/Output/biannual_means_LS.csv")
     tmp = list(df_means_per.columns)
     tmp[0] = "Mission Day"
     df_means_per.columns = tmp
 
-    df_mins_per = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_mins_LS.csv")
+    df_mins_per = parse_csv_file(f"{user_vars.set_dir}/Output/biannual_mins_LS.csv")
     tmp = list(df_mins_per.columns)
     tmp[0] = "Mission Day"
     df_mins_per.columns = tmp
 
-    df_maxes_per = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_maxes_LS.csv")
+    df_maxes_per = parse_csv_file(f"{user_vars.set_dir}/Output/biannual_maxes_LS.csv")
     tmp = list(df_maxes_per.columns)
     tmp[0] = "Mission Day"
     df_maxes_per.columns = tmp
 
-    df_means  = parse_csv_file(user_vars.set_dir + "/mission_means.csv")
+    df_means  = parse_csv_file(f"{user_vars.set_dir}/Files/mission_means.csv")
     tmp = list(df_means.columns)
     tmp[0] = "Mission Day"
     df_means.columns = tmp
 
-    df_mins  = parse_csv_file(user_vars.set_dir + "/mission_mins.csv")
+    df_mins  = parse_csv_file(f"{user_vars.set_dir}/Files/mission_mins.csv")
     tmp = list(df_mins.columns)
     tmp[0] = "Mission Day"
     df_mins.columns = tmp
 
-    df_maxes  = parse_csv_file(user_vars.set_dir + "/mission_maxes.csv")
+    df_maxes  = parse_csv_file(f"{user_vars.set_dir}/Files/mission_maxes.csv")
     tmp = list(df_maxes.columns)
     tmp[0] = "Mission Day"
     df_maxes.columns = tmp
@@ -816,18 +852,18 @@ def generate_appendix_figure(user_vars,df_means,df_mins,df_maxes,mission=False):
 def generate_mission_appendix_plots(user_vars):
     "Generate mission appendix plots from csv file data."
     print(" - Generating Mission Appendix Plots...")
-    df_means = parse_csv_file(user_vars.set_dir + "/Output/" + "full_mission_means.csv")
-    df_mins  = parse_csv_file(user_vars.set_dir + "/Output/" + "full_mission_mins.csv")
-    df_maxes = parse_csv_file(user_vars.set_dir + "/Output/" + "full_mission_maxes.csv")
+    df_means = parse_csv_file(f"{user_vars.set_dir}/Output/full_mission_means.csv")
+    df_mins  = parse_csv_file(f"{user_vars.set_dir}/Output/full_mission_mins.csv")
+    df_maxes = parse_csv_file(f"{user_vars.set_dir}/Output/full_mission_maxes.csv")
     generate_appendix_figure(user_vars,df_means,df_mins,df_maxes,True)
 
 
 def generate_period_appendix_plots(user_vars):
     "Generate period appendix plots from csv file data."
     print(" - Generating Period Appendix Plots...")
-    df_means = parse_csv_file(user_vars.set_dir + "/Output/" + "period_means.csv")
-    df_mins  = parse_csv_file(user_vars.set_dir + "/Output/" + "period_mins.csv")
-    df_maxes = parse_csv_file(user_vars.set_dir + "/Output/" + "period_maxes.csv")
+    df_means = parse_csv_file(f"{user_vars.set_dir}/Output/period_means.csv")
+    df_mins  = parse_csv_file(f"{user_vars.set_dir}/Output/period_mins.csv")
+    df_maxes = parse_csv_file(f"{user_vars.set_dir}/Output/period_maxes.csv")
     generate_appendix_figure(user_vars,df_means,df_mins,df_maxes)
 
 
@@ -869,8 +905,10 @@ def main():
     generate_ska_plots(user_vars, Data())
     generate_ssr_plots(user_vars, Data())
     generate_pa_bpt_plots(user_vars)
+
     if user_vars.prime_ssr == "A":
         build_sbe_mod104_avg_plot(user_vars)
+
     build_sbe_vs_dbe_solar_date_plot(user_vars)
     build_sbe_vs_dbe_submod_plot(user_vars)
     build_query_data_file(user_vars)

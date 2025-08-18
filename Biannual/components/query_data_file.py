@@ -1,6 +1,7 @@
 "Generate file with additional query data"
 
 import warnings
+import traceback
 import dataclasses
 import openpyxl as xl
 from tqdm import tqdm
@@ -8,7 +9,6 @@ from datetime import timedelta
 from cxotime import CxoTime
 from components.data_requests import ska_data_request as ska_data
 warnings.filterwarnings('ignore')
-
 
 @dataclasses.dataclass
 class SSRRolloverDataPoint:
@@ -38,9 +38,9 @@ def get_ssr_rollover_data(user_vars):
     data_point= SSRRolloverDataPoint(None, None)
 
     # Parse data for SSR record swap on prime SSR
-    for index, (time, value) in tqdm(enumerate(
-        zip(ssr_data.times, ssr_data.vals)),
-        total= len(ssr_data.times), bar_format= "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
+    for index, (time, value) in tqdm(enumerate(zip(ssr_data.times, ssr_data.vals)),
+                                     total= len(ssr_data.times),
+                                     bar_format= "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
 
         if index != 0:
             if value == "FALS" and ssr_data.vals[index - 1] == "TRUE":
@@ -85,28 +85,6 @@ def get_rollover_days(ssr_data):
     return rollover_days
 
 
-def write_ssr_data(file, user_vars, ssr_data, rollover_days):
-    "Write SSR data to data file"
-    file.write("SSR Active Data\n")
-
-    if user_vars.prime_ssr == "A":
-        backup = "B"
-    else: backup = "A"
-
-    file.write(f"  • Days that SSR-{backup} was active during the "
-               f"biannual period {rollover_days}\n")
-
-    for data_point in ssr_data:
-        try:
-            prime_to_backup= data_point.prime_to_backup.strftime('%Y:%j:%H:%M:%S.%f')[:-3]
-            backup_to_prime= data_point.backup_to_prime.strftime('%Y:%j:%H:%M:%S.%f')[:-3]
-            file.write(f"  • SSR rollover on {prime_to_backup}z "
-                       f"with a recovery on {backup_to_prime}z.\n")
-        except AttributeError:
-            pass
-    file.write("-------------------------------------------------------------------------\n\n")
-
-
 def get_dsn_data(user_vars):
     "Get DSN data from DSN excel files."
     print("\nGet DSN Data from Marshall Monthly Files...")
@@ -125,11 +103,15 @@ def get_dsn_data(user_vars):
     # Pull data by year/month
     for year_month in year_months:
         raw_time = timedelta(0)
-        directory = (
-            f"/share/FOT/operations/Marshall Monthly/{year_month[0]} Reports/"
-            f"{year_month[1]}_{year_month[0]} Report.xlsx"
-        )
-        dsn_excel = xl.load_workbook(directory)
+        directory= f"{user_vars.set_dir}/Files/DSN/{year_month[1]}_{year_month[0]} Report.xlsx"
+
+        try:
+            dsn_excel = xl.load_workbook(directory, data_only= True)
+            print(f"  - Processing {year_month[1]}_{year_month[0]} Report.xlsx...")
+
+        except FileNotFoundError:
+            print(f"  - File {year_month[1]}_{year_month[0]} Report.xlsx not found.")
+            continue
 
         for cell in ("G3","H3"):
             raw_time += dsn_excel["Totals"][f"{cell}"].value
@@ -137,8 +119,8 @@ def get_dsn_data(user_vars):
         # Record data
         dsn_data.year= year_month[0]
         dsn_data.month= year_month[1]
-        dsn_data.supports= raw_time.days*24 + raw_time.seconds/3600
-        dsn_data.time= dsn_excel["Totals"]["B3"].value
+        dsn_data.time= round(raw_time.days*24 + raw_time.seconds/3600, 2)
+        dsn_data.supports= dsn_excel["Totals"]["B3"].value
 
         # Running total of all
         total_supports += dsn_data.supports
@@ -156,21 +138,6 @@ def get_dsn_data(user_vars):
     return dsn_data_list
 
 
-def write_dsn_data(file, dsn_data_list):
-    "Write the DSN data to the file."
-    file.write("DSN Comm Data\n")
-
-    for index, (data) in enumerate(dsn_data_list):
-        if not (index + 1) == len(dsn_data_list):
-            file.write(f"  • In {data.year}:{data.month} there were {data.supports} supports with "
-                       f"a total time of {data.time} hours.\n")
-        else:
-            file.write(f"  • In Total there were {data.supports} supports with "
-                       f"a total time of {data.time} hours.\n")
-
-    file.write("-------------------------------------------------------------------------\n\n")
-
-
 def get_ssr_b_on_mean(user_vars):
     "Get the mean value for MSID CSSR2CBV for the biannaual period when SSR-B ON"
     print("\nFinding the mean value of CSSR2CBV for the biannaul period...")
@@ -186,28 +153,77 @@ def get_ssr_b_on_mean(user_vars):
     return sum_of_values / counter
 
 
-def write_ssr_b_mean(file, mean_value):
+def write_ssr_rollover_data(file, ssr_data):
+    "Write SSR data to data file"
+
+    for data_point in ssr_data:
+        try:
+            prime_to_backup= data_point.prime_to_backup.strftime('%Y:%j:%H:%M:%S.%f')[:-3]
+            backup_to_prime= data_point.backup_to_prime.strftime('%Y:%j:%H:%M:%S.%f')[:-3]
+            file.write(f"  • SSR rollover on {prime_to_backup}z "
+                       f"with a recovery on {backup_to_prime}z.\n")
+        except AttributeError:
+            pass
+
+
+def write_rollover_days_data(file, user_vars, ssr_data):
+    "write the rollover days data to the data file"
+    rollover_days= get_rollover_days(ssr_data)
+
+    if user_vars.prime_ssr == "A":
+        backup = "B"
+    else: backup = "A"
+
+    file.write(f"  • Days that SSR-{backup} was active during the "
+               f"biannual period {rollover_days}\n")
+
+
+def write_ssr_b_mean(file, user_vars):
     "Write the SSR-B ON mean value to the file."
+    mean_value= get_ssr_b_on_mean(user_vars)
     file.write("SSR-B ON time mean value\n")
-    file.write(f"  • The mean value for MSID CSSR2CBV was: {mean_value}")
+    file.write(f"  • The mean value for MSID CSSR2CBV was: {mean_value}\n")
+
+
+def write_dsn_data(file, user_vars):
+    "Write the DSN data to the file."
+    dsn_data= get_dsn_data(user_vars)
+    file.write("DSN Comm Data\n")
+
+    for index, (data) in enumerate(dsn_data):
+        if not (index + 1) == len(dsn_data):
+            file.write(f"  • In {data.year}:{data.month} there were {data.supports} supports with "
+                       f"a total time of {data.time} hours.\n")
+        else:
+            file.write(f"  • In Total there were {data.supports} supports with "
+                       f"a total time of {data.time} hours.\n")
 
 
 def build_query_data_file(user_vars):
     "Build the query data file"
-    ssr_data= get_ssr_rollover_data(user_vars)
-    rollover_days= get_rollover_days(ssr_data)
-    dsn_data = get_dsn_data(user_vars)
-    if user_vars.prime_ssr == "A":
-        mean_value= get_ssr_b_on_mean(user_vars)
+    try:
+        with open(f"{user_vars.set_dir}/Output/query_data.txt", "w+", encoding="utf-8") as file:
+            ssr_data= get_ssr_rollover_data(user_vars)
 
-    # Open the output file
-    with open(f"{user_vars.set_dir}/Output/query_data.txt", "w+", encoding="utf-8") as file:
-        file.write(f"Query Data for {user_vars.start_year}:{user_vars.start_doy} through "
-                   f"{user_vars.end_year}:{user_vars.end_doy}\n")
-        file.write("-------------------------------------------------------------------------\n\n")
-        write_ssr_data(file, user_vars, ssr_data, rollover_days)
-        write_dsn_data(file, dsn_data)
-        if user_vars.prime_ssr == "A":
-            write_ssr_b_mean(file, mean_value)
+            # Write SSR Data
+            file.write("SSR Active Data\n")
+            write_ssr_rollover_data(file, ssr_data)
+            write_rollover_days_data(file, user_vars, ssr_data)
+            file.write("-" * 74 + "\n\n")
+
+            # Write SSR-B ON mean value
+            if user_vars.prime_ssr == "A":
+                write_ssr_b_mean(file, user_vars)
+                file.write("-" * 74 + "\n\n")
+
+            # Write DSN Data
+            write_dsn_data(file, user_vars)
+            file.write("-" * 74 + "\n\n")
+
+            print("\n - Query Data File Created!")
+            file.close()
+
+    except (IndexError, TypeError) as error:
+        print(f"Error ({error}) while building data file, file partially written.")
+        traceback.print_exc()
         file.close()
-    print("\n - Query Data File Created!")
