@@ -1,0 +1,8 @@
+#!/bin/tcsh
+setenv ssrDirectory $0:h
+setenv PYTHONPATH /home/rhoover/SSRVisualizer
+cd ${ssrDirectory}
+
+unsetenv PERL5LIB
+source /proj/sot/ska3/flight/bin/ska_envs.csh
+/proj/sot/ska3/flight/bin/python main.py
