@@ -51,10 +51,13 @@ def get_pointers(start_date, end_date, ssr):
     pb_pointers.append(int(pb_data['data-fmt-1']['values'][0]))
 
     for i, (val) in enumerate(pb_data['data-fmt-1']['values']):
-        next_val= pb_data['data-fmt-1']['values'][i+1]
-        if next_val != val:
-            pb_pointers.append(int(next_val))
-            break
+        try:
+            next_val= pb_data['data-fmt-1']['values'][i+1]
+            if next_val != val:
+                pb_pointers.append(int(next_val))
+                break
+        except IndexError:
+            pb_pointers.append(None)
 
     # Record the current Record Pointer Value
     rc_data= data_request(start_date, end_date, f"COS{ssr.upper()}RCPT")
@@ -84,7 +87,7 @@ def generate_polar_plot(ssr, pb_pointers, rc_pointer):
            playback pointers on a circular scale.
     """
     print(f"  - Generating Plot for SSR-{ssr}...\n")
-    ssr_max, ssr_min= 134217728, 12500
+    ssr_max, ssr_min= 134217728, 0
     angles_deg= np.linspace(0, 360, 8, endpoint=False)
     fig= go.Figure()
 
@@ -127,29 +130,32 @@ def generate_polar_plot(ssr, pb_pointers, rc_pointer):
 
     def add_previous_playback_pointer(fig):
         "Add the previous playback pointer"
-        prev_pb_angle= (pb_pointers[-1] / (ssr_max-ssr_min)) * 360
-        fig.add_trace(go.Scatterpolar(
-            r= [0, 1.2], theta= [prev_pb_angle, prev_pb_angle],
-            name= f"Previous Playback Pointer: {pb_pointers[-1]:,}",
-            mode= "lines", line= {"color":"red", "width":4, "dash":"dash"},
-            hoverinfo= "skip", showlegend= True))
+        if pb_pointers[-1] is not None:
+            prev_pb_angle= (pb_pointers[-1] / (ssr_max-ssr_min)) * 360
+            fig.add_trace(go.Scatterpolar(
+                r= [0, 1.2], theta= [prev_pb_angle, prev_pb_angle],
+                name= f"Previous Playback Pointer: {pb_pointers[-1]:,}",
+                mode= "lines", line= {"color":"red", "width":4, "dash":"dash"},
+                hoverinfo= "skip", showlegend= True))
 
     def add_highlighted_region(fig, pb_pointers, rc_pointer):
         "Add the highlighted region between record/playback (current) pointer values"
-        theta0= (pb_pointers[0] / (ssr_max-ssr_min)) * 360 % 360
-        theta1= (rc_pointer / (ssr_max-ssr_min)) * 360 % 360
+        if not pb_pointers[0] == rc_pointer:
 
-        if theta1 <= theta0:
-            theta1 += 360
+            theta0= (pb_pointers[0] / (ssr_max-ssr_min)) * 360 % 360
+            theta1= (rc_pointer / (ssr_max-ssr_min)) * 360 % 360
 
-        theta_fill= np.linspace(theta0, theta1, 200)
-        r_fill= np.ones_like(theta_fill) * 1.2
-        fig.add_trace(go.Scatterpolar(
-            r= np.concatenate([[0], r_fill, [0]]),
-            theta= np.concatenate([[theta_fill[0]], theta_fill, [theta_fill[-1]]]),
-            mode= "lines", fill= "toself", fillcolor= "rgba(255,0,0,0.2)",
-            line= {"color": "rgba(255,0,0,0)"},
-            hoverinfo= "skip", showlegend= False))
+            if theta1 <= theta0:
+                theta1 += 360
+
+            theta_fill= np.linspace(theta0, theta1, 200)
+            r_fill= np.ones_like(theta_fill) * 1.2
+            fig.add_trace(go.Scatterpolar(
+                r= np.concatenate([[0], r_fill, [0]]),
+                theta= np.concatenate([[theta_fill[0]], theta_fill, [theta_fill[-1]]]),
+                mode= "lines", fill= "toself", fillcolor= "rgba(255,0,0,0.2)",
+                line= {"color": "rgba(255,0,0,0)"},
+                hoverinfo= "skip", showlegend= False))
 
     def add_datetime_annotations(fig):
         "Add query datetime annotation"
@@ -195,10 +201,9 @@ def generate_image(self):
     Returns:
         plot: The generated polar plot if SSR is ON, otherwise None.
     """
-    start_date= datetime.now(timezone.utc) - timedelta(days= 1)
-    end_date=   datetime.now(timezone.utc) - timedelta(seconds=10)
-    ssr_power=  data_request(start_date + timedelta(days= 0.75),
-                             end_date, f"COSSR{self.selectedSSR}X", skip= True)
+    start_date= datetime.now(timezone.utc) - timedelta(hours= 18.5)
+    end_date=   datetime.now(timezone.utc) - timedelta(seconds=5)
+    ssr_power=  data_request(start_date, end_date, f"COSSR{self.selectedSSR}X", skip= True)
     print(f"Checking if SSR-{self.selectedSSR} is ON...")
 
     # Only generate plot if SSR is ON
