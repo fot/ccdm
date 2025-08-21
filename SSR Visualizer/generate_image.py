@@ -203,17 +203,17 @@ def generate_image(self):
     """
     start_date= datetime.now(timezone.utc) - timedelta(hours= 18.5)
     end_date=   datetime.now(timezone.utc) - timedelta(seconds=5)
-    ssr_power=  data_request(start_date, end_date, f"COSSR{self.selectedSSR}X", skip= True)
-    print(f"Checking if SSR-{self.selectedSSR} is ON...")
+    ssr_power=  data_request(start_date, end_date, f"COSSR{self.selectedssr}X", skip= True)
+    print(f"Checking if SSR-{self.selectedssr} is ON...")
 
     # Only generate plot if SSR is ON
     try:
         if int(ssr_power['data-fmt-1']['values'][-1]) == 1:
-            print(f"  - SSR-{self.selectedSSR} is ON...")
-            pb_pointers, rc_pointer= get_pointers(start_date, end_date, self.selectedSSR)
-            plot= generate_polar_plot(self.selectedSSR, pb_pointers, rc_pointer)
+            print(f"  - SSR-{self.selectedssr} is ON...")
+            pb_pointers, rc_pointer= get_pointers(start_date, end_date, self.selectedssr)
+            plot= generate_polar_plot(self.selectedssr, pb_pointers, rc_pointer)
             return plot
     except IndexError as error:
-        print(f""" - (Error) "{error}": Unable to retrieve SSR-{self.selectedSSR} power data.""")
+        print(f""" - (Error) "{error}": Unable to retrieve SSR-{self.selectedssr} power data.""")
         traceback.print_exc()
     return None
