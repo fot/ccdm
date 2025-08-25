@@ -70,7 +70,7 @@ class SSRPointerWindow(QtWidgets.QWidget):
 
     def run_ssr(self):
         "Handle the Run button click event"
-        self.plot= generate_image(self)
+        generate_image(self)
 
         if self.plot is not None:
             with NamedTemporaryFile(suffix= ".jpg", delete= False) as tmp_file:
@@ -155,8 +155,8 @@ def build_console(self):
 
 def build_quit_button(self):
     "build the quit button"
-    self.quitbutton= QtWidgets.QPushButton('Quit')
-    self.quitbutton.setToolTip('Close New Beat Interface')
+    self.quitbutton= QtWidgets.QPushButton("Quit")
+    self.quitbutton.setToolTip("Close Tool")
     self.quitbutton.setStyleSheet(self.redBackground)
     self.layout.addWidget(self.quitbutton, 4, 3)
 
