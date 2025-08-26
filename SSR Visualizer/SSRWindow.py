@@ -157,6 +157,11 @@ def build_quit_button(self):
     "build the quit button"
     self.quitbutton= QtWidgets.QPushButton("Quit")
     self.quitbutton.setToolTip("Close Tool")
+    self.quitbutton.setMinimumHeight(40)
+    quitfont= self.quitbutton.font()
+    quitfont.setBold(True)
+    quitfont.setPointSize(2 * quitfont.pointSize())
+    self.quitbutton.setFont(quitfont)
     self.quitbutton.setStyleSheet(self.redBackground)
     self.layout.addWidget(self.quitbutton, 4, 3)
 
