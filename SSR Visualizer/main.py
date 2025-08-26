@@ -1,6 +1,8 @@
-from PyQt5.QtWidgets import QApplication
+"Main Execution for App"
+
 import sys
 from SSRWindow import SSRPointerWindow
+from PyQt5.QtWidgets import QApplication
 
 app=    QApplication(sys.argv)
 window= SSRPointerWindow()
