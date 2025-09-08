@@ -45,7 +45,7 @@ class SSRPointerWindow(QtWidgets.QWidget):
         QtWidgets.QWidget.__init__(self,parent)
         self.redBackground=   "QPushButton { background: red }"
         self.greenBackground= "QPushButton { background: lightgreen }"
-        self.setWindowTitle ("SSR Pointer Tool (Ver 1.0)")
+        self.setWindowTitle ("SSR Visualizer (Ver 1.0)")
         self.resize(QtCore.QSize(800,1100))
         self.layout= QtWidgets.QGridLayout()
         self.selectedssr= None
@@ -89,8 +89,9 @@ class SSRPointerWindow(QtWidgets.QWidget):
 
 def build_run_button(self):
     "build the run button"
-    self.runssrbutton= QtWidgets.QPushButton("Run SSR Pointer Tool")
-    self.runssrbutton.setToolTip("Run the SSR Pointer Tool to generate a plot of SSR pointers")
+    self.runssrbutton= QtWidgets.QPushButton("Run SSR Visualizer")
+    self.runssrbutton.setToolTip("Run the SSR Visualizer to generate a visual "
+                                 "of SSR pointers and data usage status.")
     self.runssrbutton.setMinimumHeight(40)
     runfont= self.runssrbutton.font()
     runfont.setBold(True)
@@ -115,7 +116,7 @@ def build_ssr_selection(self):
     self.ssrcombobox= QtWidgets.QComboBox()
     self.ssrcombobox.addItems(["A", "B"])
     self.ssrcombobox.setEditable(True)
-    self.ssrcombobox.setToolTip("Select an SSR pointer set to visualize")
+    self.ssrcombobox.setToolTip("Select which SSR to visualize")
     line_edit= self.ssrcombobox.lineEdit() # Move selectable items to center of box
     line_edit.setAlignment(QtCore.Qt.AlignCenter)
     line_edit.setReadOnly(True)
