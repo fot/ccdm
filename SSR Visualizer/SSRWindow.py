@@ -1,9 +1,11 @@
-from PyQt5 import QtWidgets, QtGui, QtCore
-from generate_image import generate_image
+"Module to create a GUI for SSR Pointer Visualization"
+
 import sys
 from tempfile import NamedTemporaryFile
 import os
-
+import tkinter as tk
+from PyQt5 import QtWidgets, QtGui, QtCore
+from generate_image import generate_image
 
 class QTextEditLogger(QtCore.QObject):
     """A logger that writes to a QTextEdit widget."""
@@ -46,7 +48,10 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.redBackground=   "QPushButton { background: red }"
         self.greenBackground= "QPushButton { background: lightgreen }"
         self.setWindowTitle ("SSR Visualizer (Ver 1.0)")
-        self.resize(QtCore.QSize(800,1100))
+        self.resize(QtCore.QSize(
+            int((tk.Tk().winfo_screenwidth() / get_screen_scaling()) / 4),
+            int((tk.Tk().winfo_screenheight() / get_screen_scaling()) / 1.5)
+            ))
         self.layout= QtWidgets.QGridLayout()
         self.selectedssr= None
         self.plot_path= None
@@ -85,6 +90,14 @@ class SSRPointerWindow(QtWidgets.QWidget):
     def quit_event(self):
         "Handle the quit button click event."
         sys.exit(1)
+
+
+def get_screen_scaling():
+    root = tk.Tk()
+    pixels_per_inch = root.winfo_fpixels('1i')  # '1i' = 1 inch
+    root.destroy()
+    scaling_factor = pixels_per_inch / 96  # 96 is the baseline DPI
+    return scaling_factor
 
 
 def build_run_button(self):
@@ -137,8 +150,8 @@ def build_image_output(self):
     self.imageoutput.setStyleSheet("border: 1px solid gray; background: #f0f0f0;")
     if self.plot is not None:
         self.imageoutput.setPixmap(
-            QtGui.QPixmap(self.plot_path).scaled(int(self.height() * 0.70),
-                                                    int(self.height() * 0.70)))
+            QtGui.QPixmap(self.plot_path).scaled(int(self.height() * 0.72),
+                                                    int(self.height() * 0.72)))
     self.layout.addWidget(self.imageoutput, 2, 0, 1, 4)
 
 
@@ -148,7 +161,7 @@ def build_console(self):
     self.consolequtput.setReadOnly(True)
     self.consolequtput.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
     self.consolequtput.setFont(QtGui.QFont("Courier", 10))
-    self.consolequtput.setMinimumHeight(int(self.height() * 0.10))
+    self.consolequtput.setMinimumHeight(int(self.height() * 0.08))
     self.layout.addWidget(self.consolequtput, 3, 0, 1, 4)
     sys.stdout= QTextEditLogger(self.consolequtput)
     sys.stderr= QTextEditLogger(self.consolequtput)
