@@ -1,7 +1,7 @@
 #!/bin/csh
 setenv SSR_DIRECTORY $0:h
-setenv PYTHONPATH "/home/rhoover/python/Code/ccdm/SSR Visualizer/"
+setenv PYTHONPATH "/home/greta/Tools/SSRVisualizer/"
 cd ${SSR_DIRECTORY}
 unsetenv PERL5LIB
 source "/proj/sot/ska3/flight/bin/ska_envs.csh"
-/proj/sot/ska3/flight/bin/python "/home/rhoover/python/Code/ccdm/SSR Visualizer/main.py"
+/proj/sot/ska3/flight/bin/python3.12 "/home/greta/Tools/SSRVisualizer/"
