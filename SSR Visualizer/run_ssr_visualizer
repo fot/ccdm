@@ -4,4 +4,4 @@ setenv PYTHONPATH "/home/greta/Tools/SSRVisualizer/"
 cd ${SSR_DIRECTORY}
 unsetenv PERL5LIB
 source "/proj/sot/ska3/flight/bin/ska_envs.csh"
-/proj/sot/ska3/flight/bin/python "/home/greta/Tools/SSRVisualizer/"
+/proj/sot/ska3/flight/bin/python "/home/greta/Tools/SSRVisualizer/main.py"
