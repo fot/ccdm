@@ -124,25 +124,21 @@ def get_dsn_data(user_vars):
 
     # Pull data by year/month
     for year_month in year_months:
-        raw_time = timedelta(0)
-        directory = (
-            f"/share/FOT/operations/Marshall Monthly/{year_month[0]} Reports/"
-            f"{year_month[1]}_{year_month[0]} Report.xlsx"
-        )
-        dsn_excel = xl.load_workbook(directory)
-
+        raw_time= timedelta(0)
+        directory= f"{user_vars.set_dir}/Files/DSN/{year_month[1]}_{year_month[0]} Report.xlsx"
+        dsn_excel= xl.load_workbook(directory, data_only= True)
         for cell in ("G3","H3"):
             raw_time += dsn_excel["Totals"][f"{cell}"].value
 
         # Record data
-        dsn_data.year= year_month[0]
-        dsn_data.month= year_month[1]
-        dsn_data.supports= raw_time.days*24 + raw_time.seconds/3600
-        dsn_data.time= dsn_excel["Totals"]["B3"].value
+        dsn_data.year=     year_month[0]
+        dsn_data.month=    year_month[1]
+        dsn_data.time=     raw_time.days*24 + raw_time.seconds/3600
+        dsn_data.supports= dsn_excel["Totals"]["B3"].value
 
         # Running total of all
         total_supports += dsn_data.supports
-        total_time += dsn_data.time
+        total_time +=     dsn_data.time
 
         # Append dsn_data_list and make a new dsn_data object
         dsn_data_list.append(dsn_data)

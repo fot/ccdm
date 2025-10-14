@@ -15,6 +15,7 @@ from Ska.tdb import tables
 from plotly.subplots import make_subplots
 from Chandra.Time import DateTime
 from tqdm import tqdm
+from datetime import datetime, timezone, timedelta
 from cxotime import CxoTime
 from components.misc import write_html_file, write_csv_file, write_png_file, parse_csv_file
 from components.pa_bpt_plots import generate_pa_bpt_plots
@@ -33,63 +34,55 @@ class UserVariables:
     def __init__(self):
         while True:
             system("clear")
-            self.get_start_year()
-            self.get_start_doy()
-            self.get_end_year()
-            self.get_end_doy()
+            self.get_start_date()
+            self.get_end_date()
             self.get_prime_ssr()
             self.set_dir = "/share/FOT/engineering/ccdm/Current_CCDM_Files/Quarterly Report/"
-            self.ts = CxoTime(f"{self.start_year}:{self.start_doy}:00:00:00")
-            self.tp = CxoTime(f"{self.end_year}:{self.end_doy}:23:59:59.999")
             self.input_status = input("Are these inputs correct? Y/N: ")
             if self.input_status in ("Y","y","Yes","yes"):
                 break
             print("\nRestarting Inputs...\n\n")
             time.sleep(1.5)
 
-    def get_start_year(self):
+    def get_start_date(self):
         "Takes user input for start year and checks validity, then returns"
         while True:
-            start_year = input("Enter the Biannual START year: ")
-            if (len(str(start_year)) == 4) and (1998 <= int(start_year) <= 2040):
-                break
-            print(f"{start_year} was an invalid input, please try again")
-        self.start_year = start_year
+            user_input= input("Enter the Biannual START date (YYYY:DOY): ")
 
-    def get_start_doy(self):
-        "Takes user input for start DOY and checks validity, then returns"
-        while True:
-            start_doy = input("Enter the Biannual START day: ")
-            if (len(str(start_doy)) == 3) and (1 <= int(start_doy) <= 366):
-                break
-            print(f"{start_doy} was an invalid input, please try again")
-        self.start_doy = start_doy
+            try:
+                ts= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:00:00:00.000")
+            except ValueError:
+                print(f' - Input "{user_input}" was not in the correct format, try again.')
+                continue
 
-    def get_end_year(self):
+            if ((2001 <= ts.datetime.year <= datetime.now(timezone.utc).year) and
+                (len(user_input) == 8) and (1 <= int(ts.datetime.strftime("%j")) <= 366)):
+                break
+            print(f' - Input "{user_input}" was not a valid date, try again.')
+
+        self.start_year= user_input[:4]
+        self.start_doy=  user_input[-3:]
+        self.ts= ts
+
+    def get_end_date(self):
         "Takes user input for end year and checks validity, then returns"
         while True:
-            end_year = input("Enter the Biannual END year: ")
-            if (
-                (len(str(end_year)) == 4) and
-                (1998 <= int(end_year) <= 2030) and
-                (end_year >= self.start_year)
-            ):
-                break
-            if end_year < self.start_year:
-                print(f"({end_year}) was less than the START year input ({self.start_year}). "
-                    "Please try again.")
-            else:
-                print("Input must be between 1998 and 2030. Please try again")
-        self.end_year = end_year
+            user_input = input("Enter the Biannual END date   (YYYY:DOY): ")
 
-    def get_end_doy(self):
-        "Takes user input for end DOY and checks validity, then returns"
-        while True:
-            end_doy = input("Enter the Biannual END day: ")
-            if (len(str(end_doy)) == 3) and (1 <= int(end_doy) <= 366):
+            try:
+                tp= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:23:59:59.999")
+            except ValueError:
+                print(f' - Input "{user_input}" was not in the correct format, try again.')
+                continue
+
+            if ((2001 <= self.ts.datetime.year <= tp.datetime.year) and
+                (len(user_input) == 8) and (1 <= int(tp.datetime.strftime("%j")) <= 366)):
                 break
-            print(f"{end_doy} was an invalid input, please try again\n")
-        self.end_doy = end_doy
+            print(f' - Input "{user_input}" was invalid, try again.')
+
+        self.end_year= user_input[:4]
+        self.end_doy=  user_input[-3:]
+        self.tp= tp
 
     def get_prime_ssr(self):
         "Takes user input to set what SSR was prime for the period"
@@ -108,7 +101,8 @@ def display_user_instructions(user_vars):
     while True:
         new_dir = input(
             "1) Enter new directory to be created with the following name format:\n"
-            "   - XX_YYMMM_YYMMM\n\n   Input: "
+            "   - XX_YYMMM_YYMMM\n"
+            "   Input: "
         )
         try:
             os.mkdir(user_vars.set_dir + new_dir)
@@ -150,7 +144,7 @@ def display_user_instructions(user_vars):
 
     print(f"""\nConfigured Directory: "{user_vars.set_dir}"\n""")
 
-    # Force user to run BEAT Tool
+    # Require user to run BEAT Tool
     while True:
         input(
             f"""2) Run Beat Tool to generate SSR data for Biannual Period.\n"""
@@ -163,9 +157,27 @@ def display_user_instructions(user_vars):
                       "SBE-83-mission-daily.txt","SBE-104-mission-daily.txt","SBE-all-mission-daily.txt",
                       "SBE-all-mission-submod.txt","SBE-all-period-daily.txt","SBE-all-period-submod.txt"]
 
-        if check_if_files_exist(f"{user_vars.set_dir}/Files/SSR/", beat_files):
+        if check_if_files_exist(f"{user_vars.set_dir}/Files/SSR", beat_files):
             print("    - Files exist!\n")
             break
+
+        print("    - Please check files again, they couldn't be found. \U0001F62D\n")
+
+    # Require user to copy the appliable DSN Marshall Monthly Files files
+    while True:
+        input(
+            """3) Copy the Marshall Monthly DSN files into the following directory:\n"""
+            f"""    - FROM: /share/FOT/operations/Marshall Monthly/{user_vars.start_year} """
+            """Reports/ \n"""
+            f"""    - TO:   {user_vars.set_dir}/Files/DNS/\n"""
+            """\n     Input DONE once completed: """
+        )
+
+        if check_if_files_exist(f"{user_vars.set_dir}/Files/DSN", get_dsn_file_names(user_vars)):
+            print("    - Files exist!\n")
+            break
+
+        print("    - Please check files again, they couldn't be found. \U0001F62D\n")
 
     # Move required files into directories
     while True:
@@ -183,7 +195,27 @@ def display_user_instructions(user_vars):
         if check_if_files_exist(user_vars.set_dir, data_files):
             print("    - Files exist!\n")
             break
+
         print("    - Please check files again, they couldn't be found. \U0001F62D\n")
+
+
+def get_dsn_file_names(user_vars):
+    """Generate list of months from the user input dates"""
+    year_months, files_list= [], []
+    time_delta = user_vars.tp.datetime - user_vars.ts.datetime
+
+    # Generate the years/months list
+    for day in range(time_delta.days + 1):
+        current_day= (user_vars.ts + timedelta(days=day)).datetime
+
+        if ([f"{current_day.strftime('%Y')}",f"{current_day.strftime('%B')}"]) not in year_months:
+            year_months.append([f"{current_day.strftime('%Y')}",f"{current_day.strftime('%B')}"])
+
+    # Assemble the file names
+    for year_month in year_months:
+        files_list.append(f"{year_month[1]}_{year_month[0]} Report.xlsx")
+
+    return files_list
 
 
 def check_if_files_exist(set_dir, check_files):
