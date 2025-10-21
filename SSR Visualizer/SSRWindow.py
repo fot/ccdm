@@ -58,11 +58,12 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.plot= None
 
 #       # Build GUI
-        build_ssr_selection(self) # row 1, columns 0-3
-        build_image_output(self)  # row 2, columns 0-3
-        build_console(self)       # row 3, columns 0-3
-        build_run_button(self)    # row 4, columns 0-2
-        build_quit_button(self)   # row 4, column 3
+        build_ssr_selection(self)     # row 1, columns 0-1
+        build_channel_selection(self) # row 1, columns 2-3
+        build_image_output(self)      # row 2, columns 0-3
+        build_console(self)           # row 3, columns 0-3
+        build_run_button(self)        # row 4, columns 0-2
+        build_quit_button(self)       # row 4, column 3
         gui_formatting(self)
 
         # Button clicked actions
@@ -72,6 +73,10 @@ class SSRPointerWindow(QtWidgets.QWidget):
     def selected_ssr(self, text):
         "Handle changes in the SSR selection combo box."
         self.selectedssr= text
+
+    def selected_channel(self, text):
+        "Handle changes in the channel selection combo box."
+        self.selectedchannel= text
 
     def run_ssr(self):
         "Handle the Run button click event"
@@ -140,6 +145,34 @@ def build_ssr_selection(self):
     self.layout.addWidget(self.ssrcombobox, 1, 1)
     self.selectedssr= self.ssrcombobox.currentText()
     self.ssrcombobox.currentTextChanged.connect(self.selected_ssr)
+
+
+def build_channel_selection(self):
+    "build the channel selection combo box"
+    # Section label
+    self.channellabel= QtWidgets.QLabel("Channel:")
+    self.channellabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
+    self.channellabel.setMinimumHeight(30)
+    channelfont= self.channellabel.font()
+    channelfont.setPointSize(2 * channelfont.pointSize())
+    self.channellabel.setFont(channelfont)
+    self.layout.addWidget(self.channellabel, 1, 2)
+
+    # Channel selection combo box
+    self.channelcombobox= QtWidgets.QComboBox()
+    self.channelcombobox.addItems(["Flight", "ASVT"])
+    self.channelcombobox.setEditable(True)
+    self.channelcombobox.setToolTip("Select which data channel to query data from.")
+    line_edit= self.channelcombobox.lineEdit() # Move selectable items to center of box
+    line_edit.setAlignment(QtCore.Qt.AlignCenter)
+    line_edit.setReadOnly(True)
+    self.channelcombobox.setMinimumHeight(30)
+    ssrcombofont= self.channelcombobox.font()
+    ssrcombofont.setPointSize(2 * ssrcombofont.pointSize())
+    self.channelcombobox.setFont(ssrcombofont)
+    self.layout.addWidget(self.channelcombobox, 1, 3)
+    self.selectedchannel= self.channelcombobox.currentText()
+    self.channelcombobox.currentTextChanged.connect(self.selected_channel)
 
 
 def build_image_output(self):

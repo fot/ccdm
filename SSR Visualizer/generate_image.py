@@ -18,7 +18,7 @@ def get_screen_scaling():
     return scaling_factor
 
 
-def data_request(ts, tp, msid, skip= False):
+def data_request(self, msid, skip= False):
     """
     Description: Data request for a general timeframe and MSID, returns json or data dict
     Input: User Variables, MSID
@@ -26,8 +26,9 @@ def data_request(ts, tp, msid, skip= False):
     """
     if not skip:
         print(f"    - Requesting data for MSID: {msid}...")
-    url= (f"https://occweb.cfa.harvard.edu/maude/mrest/FLIGHT/msid.json?m="
-          f"{msid}&ts={ts.strftime('%Y%j.%H%M%S')}&tp={tp.strftime('%Y%j.%H%M%S')}")
+    url= (f"https://occweb.cfa.harvard.edu/maude/mrest/{self.selectedchannel.upper()}"
+          f"/msid.json?m={msid}&ts={self.start_date.strftime('%Y%j.%H%M%S')}"
+          f"&tp={self.end_date.strftime('%Y%j.%H%M%S')}")
     with urllib.request.urlopen(url) as response:
         return json.loads(response.read())
 
@@ -55,7 +56,7 @@ def get_pointers(self):
     pb_pointers= []
 
     # Find Current and Previous Playback Pointers
-    pb_data= data_request(self.start_date, self.end_date, f"COS{self.selectedssr.upper()}PBPT")
+    pb_data= data_request(self, f"COS{self.selectedssr.upper()}PBPT")
     pb_data['data-fmt-1']['values'].reverse()
     pb_pointers.append(int(pb_data['data-fmt-1']['values'][0]))
 
@@ -69,7 +70,7 @@ def get_pointers(self):
             pb_pointers.append(None)
 
     # Record the current Record Pointer Value
-    rc_data= data_request(self.start_date, self.end_date, f"COS{self.selectedssr.upper()}RCPT")
+    rc_data= data_request(self, f"COS{self.selectedssr.upper()}RCPT")
     rc_pointer= int(rc_data['data-fmt-1']['values'][-1])
 
     self.pb_pointers= pb_pointers
@@ -174,7 +175,7 @@ def generate_polar_plot(self):
     def add_playback_active_annotation(plot):
         "Add annotation if an SSR playback is currently occuring"
         print(f"  - Checking if SSR-{self.selectedssr} has an active playback...")
-        playback_active= data_request(self.start_date, self.end_date, f"COS{self.selectedssr}PBEN")
+        playback_active= data_request(self, f"COS{self.selectedssr}PBEN")
 
         if playback_active['data-fmt-1']['values'][-1] == "1":
             plot.add_annotation(
@@ -226,7 +227,7 @@ def generate_image(self):
     self.start_date= datetime.now(timezone.utc) - timedelta(hours= 18.5)
     self.end_date=   datetime.now(timezone.utc) - timedelta(seconds=5)
     print(f"Checking if SSR-{self.selectedssr} is ON...")
-    ssr_power= data_request(self.start_date, self.end_date, f"COSSR{self.selectedssr}X")
+    ssr_power= data_request(self, f"COSSR{self.selectedssr}X")
 
     # Only generate plot if SSR is ON
     try:
