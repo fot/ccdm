@@ -5,15 +5,24 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from cxotime import CxoTime
 from components.misc import format_doy
+from components.status_report.components.limit_detection import (
+    get_limit_reports_data)
 
 @dataclass
 class BEATData:
     "Dataclass for BEAT Data"
     ssr:       None
-    submodule: None
-    dbe_count: None
+    submodule: int
+    dbe_count: int
     ts:        None
     tp:        None
+
+    def __init__(self, ssr, submodule, dbe_count, ts, tp):
+        self.ssr= ssr
+        self.submodule= submodule
+        self.dbe_count= dbe_count
+        self.ts= ts
+        self.tp= tp
 
 
 def check_attributes(obj):
@@ -27,16 +36,14 @@ def check_attributes(obj):
 def get_beat_report_dirs(user_vars):
     "Generate list of beat report files"
     print(" - Building SSR beat report directory list...")
-    start_date= datetime.strptime(
-        f"{user_vars.year_start}:{user_vars.doy_start}:000000","%Y:%j:%H%M%S"
-        )
-    end_date= datetime.strptime(
-        f"{user_vars.year_end}:{user_vars.doy_end}:235959","%Y:%j:%H%M%S"
-        )
-    root_folder= (
-        "/share/FOT/engineering/ccdm/Current_CCDM_Files/Weekly_Reports/SSR_Short_Reports/"
-        )
     full_file_list, file_list= ([] for i in range(2))
+
+    start_date= datetime.strptime(
+        f"{user_vars.year_start}:{user_vars.doy_start}:000000","%Y:%j:%H%M%S")
+    end_date= datetime.strptime(
+        f"{user_vars.year_end}:{user_vars.doy_end}:235959","%Y:%j:%H%M%S")
+    root_folder= ("/share/FOT/engineering/ccdm/Current_CCDM_Files/"
+                  "Weekly_Reports/SSR_Short_Reports/")
 
     for year_diff in range((end_date.year-start_date.year) + 1):
         year= start_date.year + year_diff
@@ -95,42 +102,47 @@ def parse_beat_report(beat_dir, user_vars):
     return data_list
 
 
-def write_beat_report_data(dbe_data_list, file):
+def write_double_bit_errors(user_vars, dbe_data_list, file):
     "Write data parsed from BEAT reports into output file."
-    for index, (data_point) in enumerate(dbe_data_list):
-        doy= data_point.ts.strftime("%Y:%j")
-        previous_doy= dbe_data_list[index - 1].ts.strftime("%Y:%j")
-        start_time= f"""{data_point.ts.strftime("%H:%M:%S")}z"""
-        end_time= f"""{data_point.tp.strftime("%H:%M:%S")}z"""
+    previous_doy= None # Init previous day of year
+    limit_reports= get_limit_reports_data(user_vars)
 
-        if doy != previous_doy or (len(dbe_data_list) == 1):
-            file.write(f"\nDBEs for {doy}:\n")
-
-        file.write(f"  - ({start_time} thru {end_time}) SSR-{data_point.ssr} | "
-                   f"submodule: {data_point.submodule} | DBEs: {data_point.dbe_count}\n")
-
-
-def write_beat_report(user_vars, dbe_data_list, file):
-    "Write formatting for BEAT reports into output file."
-    line= "-----------------------------"
+    # Write header info
     file.write(
         f"Detected DBEs for {user_vars.year_start}:{format_doy(user_vars.doy_start)} "
-        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" +line+line+line)
+        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" + ("-" * 87))
 
     if len(dbe_data_list) != 0:
-        write_beat_report_data(dbe_data_list,file)
+        for data_point in dbe_data_list:
+            current_doy= data_point.ts.strftime("%Y:%j")
+            start_time= f'{data_point.ts.strftime("%H:%M:%S")}z'
+            end_time= f'{data_point.tp.strftime("%H:%M:%S")}z'
+            entry_string= (
+                f"  - ({start_time} thru {end_time}) SSR-{data_point.ssr} | "
+                f"submodule: {data_point.submodule} | DBEs: {data_point.dbe_count}")
+
+            # Check for limit violations during DBE timeframe
+            for limit_report in limit_reports:
+                if data_point.ts <= limit_report.date <= data_point.tp:
+                    entry_string += " ***Limit Violation Detected in Timeframe!***"
+                    break
+
+            # Add entry header if new day of year. Also write entry
+            if current_doy != previous_doy:
+                file.write(f"\nDBEs for {current_doy}:\n")
+            file.write(f"{entry_string}\n")
+
+            # Save previous_day for the next iteration
+            previous_doy= current_doy
     else:
         file.write("\n  - No DBEs detected for the selected date/time range \U0001F63B.\n")
 
-    file.write("\n  ----------END OF DBE DETECTION----------")
-    file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
-    print(""" - Done! Data written to "DBE section".""")
 
-
-def get_beat_report_data(beat_report_dirs, user_vars):
+def get_beat_report_data(user_vars):
     "Parse SSR beat reports into data"
     print(" - Parsing SSR beat report data...")
-    dbe_data_list= []
+    data_points, dbe_data_list= ([] for i in range(2))
+    beat_report_dirs= get_beat_report_dirs(user_vars)
 
     for beat_report in beat_report_dirs:
         try:
@@ -148,6 +160,13 @@ def get_beat_report_data(beat_report_dirs, user_vars):
 def dbe_detection(user_vars, file):
     "Pull DBEs from BEAT files to populate into report file."
     print("\nAdding DBE data...")
-    beat_report_dirs= get_beat_report_dirs(user_vars)
-    dbe_data_list= get_beat_report_data(beat_report_dirs, user_vars)
-    write_beat_report(user_vars, dbe_data_list, file)
+    
+    # Pulling and writing Double Bit Error Data
+    dbe_data_list= get_beat_report_data(user_vars)
+
+    # Write all DBE data to file
+    write_double_bit_errors(user_vars, dbe_data_list, file)
+
+    file.write("\n  ----------END OF DBE DETECTION----------")
+    file.write("\n" + ("-" * 145) + "\n" + ("-" * 145) + "\n")
+    print(""" - Done! Data written to "DBE section".""")
