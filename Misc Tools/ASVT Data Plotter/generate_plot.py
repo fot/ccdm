@@ -48,6 +48,6 @@ def build_plot(self):
         fig.add_trace(go.Scatter(
             x= x, y= y, mode='lines',name= msid),row= i + 1, col=1)
 
-    fig.update_layout(title_text= "SSR MSIDs", autosize= True, showlegend= True)
+    fig.update_layout(autosize= True, showlegend= True)
 
     return fig

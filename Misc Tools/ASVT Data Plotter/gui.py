@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QTextEdit, QProgressBar
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import Qt, QUrl, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, QUrl, pyqtSignal, QObject, QThread
 from PyQt5.QtGui import QMovie
 from generate_plot import build_plot
 
@@ -28,31 +28,28 @@ class WorkerSignals(QObject):
 # -------------------------------------------------------
 # WORKER THREAD
 # -------------------------------------------------------
-class PlotWorker(threading.Thread):
-    def __init__(self, gui, signals):
+class PlotWorker(QThread):
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, gui):
         super().__init__()
         self.gui = gui
-        self.signals = signals
         self._cancel = False
-
-    def cancel(self):
-        self._cancel = True
 
     def run(self):
         try:
             if self._cancel:
                 return
-
-            fig= build_plot(self.gui)
-
+            fig = build_plot(self.gui)
             if self._cancel:
                 return
-
-            self.signals.finished.emit(fig)
-
+            self.finished.emit(fig)
         except Exception as e:
-            self.signals.error.emit(str(e))
+            self.error.emit(str(e))
 
+    def cancel(self):
+        self._cancel = True
 
 # -------------------------------------------------------
 # MAIN GUI
@@ -224,8 +221,10 @@ class FileLoaderApp(QWidget):
         self.spinner_movie.start()
         self.progress.setValue(5)
 
-        # Create worker
-        self.worker = PlotWorker(self, self.signals)
+        # Use QThread-based worker
+        self.worker = PlotWorker(self)
+        self.worker.finished.connect(self.plot_ready)
+        self.worker.error.connect(self.plot_error)
         self.worker.start()
 
     # ---------------------------------------------------
@@ -234,6 +233,7 @@ class FileLoaderApp(QWidget):
     def cancel_worker(self):
         if self.worker:
             self.worker.cancel()
+            self.worker.wait()  # ensures the thread stops safely
             self.log("[WARNING] Operation cancelled.")
             self.spinner_movie.stop()
             self.spinner.setVisible(False)
@@ -245,21 +245,36 @@ class FileLoaderApp(QWidget):
     def plot_ready(self, fig):
         self.log("[SUCCESS] Plot generated.")
 
-        # write temp HTML file
+        # Delete previous temp file if it exists
+        if hasattr(self, 'current_temp_file') and self.current_temp_file:
+            try:
+                Path(self.current_temp_file).unlink()
+            except Exception:
+                pass
+
+        # Create a new temp file
         fd, temp_path = tempfile.mkstemp(suffix=".html")
-        Path(temp_path).write_text(fig.to_html(include_plotlyjs="cdn", full_html=True))
+        self.current_temp_file = temp_path  # store reference for cleanup next time
 
-        # auto-resize JS included in fig.to_html, but ensuring:
-        with open(temp_path, "a") as f:
-            f.write("""
-            <script>
-            window.addEventListener("resize", function() {
-                var gd = document.querySelector('.plotly-graph-div');
-                if (gd) Plotly.Plots.resize(gd);
-            });
-            </script>
-            """)
+        # Generate full HTML with embedded JS
+        html_content = fig.to_html(include_plotlyjs=True, full_html=True)
+        html_content = html_content.replace(":focus-visible", ":focus")  # QtWebEngine CSS fix
 
+        # Append auto-resize JS
+        html_content += """
+        <script>
+        window.addEventListener("resize", function() {
+            var gd = document.querySelector('.plotly-graph-div');
+            if (gd) Plotly.Plots.resize(gd);
+        });
+        </script>
+        """
+
+        # Write to disk
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+        # Load into QWebEngineView
         self.plot_view.load(QUrl.fromLocalFile(temp_path))
 
         self.spinner_movie.stop()
