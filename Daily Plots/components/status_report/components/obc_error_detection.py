@@ -95,12 +95,11 @@ def write_obc_error_report(user_vars, file, report_data):
     Input: Data <dict>
     Output: None
     """
-    line= "-----------------------------"
     file.write(
         "Detected OBC Errors for "
         f"{user_vars.year_start}:{format_doy(user_vars.doy_start)} thru "
         f"{user_vars.year_end}:{format_doy(user_vars.doy_end)}\n" +
-        "\n" + line + line + line)
+        "\n" + ("-"*87) + "\n")
 
     if report_data:
         write_obc_errors(report_data, file)
@@ -108,7 +107,7 @@ def write_obc_error_report(user_vars, file, report_data):
         file.write("\n  - No OBC Errors detected \U0001F63B.\n")
 
     file.write("\n  ----------END OF OBC ERRORS----------")
-    file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
+    file.write("\n" + ("-"*145) + "\n" + ("-"*145) + "\n")
     print(" - Done! Data written to OBC error section.")
 
 
