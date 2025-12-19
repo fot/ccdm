@@ -9,16 +9,16 @@ from components.misc import format_doy
 @dataclass
 class LimitViolationData:
     "Dataclass for limit violation data"
-    date=   None
-    msid=   None
-    status= None
-    measured_value= None
-    operator=       None
-    expected_value= None
+    date:   datetime
+    msid:   str
+    status: str
+    measured_value: str
+    operator:       str
+    expected_value: str
 
-    def __init__(self,date, msid, status, measured_value, operator, expected_value):
-        self.date=  date
-        self.msid=  msid
+    def __init__(self, date, msid, status, measured_value, operator, expected_value):
+        self.date= date
+        self.msid= msid
         self.status= status
         self.measured_value= measured_value
         self.operator=       operator
@@ -56,7 +56,7 @@ def parse_limit_report(file_dir):
     Description: Parse limit error report
     """
     data_list= []
-    data_point= LimitViolationData(None,None,None,None,None,None)
+    data_point= LimitViolationData(datetime,str,str,str,str,str)
 
     try:
         with open(file_dir, "r", encoding="utf-8") as limit_file:
@@ -71,9 +71,9 @@ def parse_limit_report(file_dir):
                     data_point.operator=       split_line[5]
                     data_point.expected_value= split_line[6]
 
-                if data_point.msid is not None:
+                if data_point.msid != str:
                     data_list.append(data_point)
-                    data_point= LimitViolationData(None,None,None,None,None,None)
+                    data_point= LimitViolationData(datetime,str,str,str,str,str)
 
     except OSError:
         print(f""" - Error! File "{file_dir}" did not exist, will skip this file...""")
@@ -90,7 +90,7 @@ def get_limit_reports_data(user_vars):
     limit_report_dirs= get_limit_report_dirs(user_vars)
 
     # Parse each limit report file & collect data
-    for file_directory in tqdm(limit_report_dirs):
+    for file_directory in tqdm(limit_report_dirs, bar_format= "{l_bar}{bar:20}{r_bar}{bar:-10b}"):
         data_list.extend(parse_limit_report(file_directory))
 
     return data_list
@@ -103,25 +103,34 @@ def write_limit_violations(limit_reports_data, file):
     Output: None
     """
     # Init previous_date
-    previous_date= None
+    previous_date, has_written= None, False
     filtered_msids= ["CTUDWLMD"]
 
-    for data_point in limit_reports_data:
+    required_entries= (
+        dp for dp in limit_reports_data 
+        if dp.msid and (dp.msid.startswith(("C", "PA_"))) 
+        and dp.msid not in filtered_msids)
 
-        # Filtered for CCDM MSIDs and Filtered MSIDs
-        if ((data_point.msid.startswith("C") or data_point.msid.startswith("PA_"))
-            and (data_point.msid not in filtered_msids)):
-            # Write the date header if new day of year
-            current_date= data_point.date.strftime("%Y:%j")
-            if current_date != previous_date:
-                file.write(f'\nCCDM limit violations for {current_date}:\n')
+    for data_point in required_entries:
+        has_written= True
 
-            file.write(
-                f'  - ({data_point.date.strftime("%H:%M:%S")} EST): MSID "{data_point.msid}", '
-                f'Status: "{data_point.status}", Measured Value: "{data_point.measured_value}" '
-                f'{data_point.operator} Expected State: "{data_point.expected_value}".\n')
+        # Format date and time onces per interation
+        current_date= data_point.date.strftime("%Y:%j")
+        current_time= data_point.date.strftime("%H:%M:%S")
 
+        # Write the date header per day of year
+        if current_date != previous_date:
+            file.write(f'\nCCDM limit violations for {current_date}:\n')
             previous_date= current_date
+
+        # Write the limit violation entry
+        file.write(
+            f'  - ({current_time} EST): MSID "{data_point.msid}", '
+            f'Status: "{data_point.status}", Measured Value: "{data_point.measured_value}" '
+            f'{data_point.operator} Expected State: "{data_point.expected_value}".\n')
+
+    if not has_written:
+        file.write("\n\n  - No limit violations detected \U0001F63B.\n")
 
 
 def write_limit_report_file(user_vars, file, limit_reports_data):
@@ -130,18 +139,16 @@ def write_limit_report_file(user_vars, file, limit_reports_data):
     Input: Data <dict>
     Output: None
     """
-    line= "-----------------------------"
+
     file.write(
         "Detected CCDM limit violations for "
         f"{user_vars.year_start}:{format_doy(user_vars.doy_start)} "
-        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" + line + line + line)
-    if limit_reports_data:
-        write_limit_violations(limit_reports_data, file)
-    else:
-        file.write("\n  - No limit violations detected \U0001F63B.\n")
+        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" + "-"*87)
+
+    write_limit_violations(limit_reports_data, file)
 
     file.write("\n  ----------END OF LIMIT VIOLATIONS----------")
-    file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
+    file.write("\n" + "-"*145 + "\n" + "-"*145 + "\n")
     print(""" - Done! Data written to "limit violation section".""")
 
 
