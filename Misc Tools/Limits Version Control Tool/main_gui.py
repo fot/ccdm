@@ -1,9 +1,10 @@
 import os
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, 
-                             QLineEdit, QLabel, QFileDialog, QMessageBox, QFrame,
-                             QHBoxLayout)
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QHBoxLayout,
+                             QLineEdit, QLabel, QMessageBox, QFrame)
 from PyQt5.QtGui import QIcon
+from misc import open_file_dialog, update_merge_button_style
 from jira_items import check_jira_status
+from google_auth import handle_google_login, handle_google_logout
 
 class LimitsRevControlGUI(QWidget):
     def __init__(self):
@@ -28,10 +29,10 @@ class LimitsRevControlGUI(QWidget):
         layout.addWidget(self.lbl_auth_status)
         login_button_layout= QHBoxLayout()
         self.btn_login= QPushButton("Login")
-        self.btn_login.clicked.connect(self.handle_google_login)
+        self.btn_login.clicked.connect(lambda: handle_google_login(self))
         self.btn_logout= QPushButton("Logout")
         self.btn_logout.setEnabled(False)
-        self.btn_logout.clicked.connect(self.handle_google_logout)
+        self.btn_logout.clicked.connect(lambda: handle_google_logout(self))
         login_button_layout.addWidget(self.btn_login)
         login_button_layout.addWidget(self.btn_logout)
         layout.addLayout(login_button_layout) 
@@ -40,7 +41,7 @@ class LimitsRevControlGUI(QWidget):
         # File Selection Section
         self.lbl_file_status = QLabel("File Status: 🔴<br>No file selected")
         self.btn_load_file = QPushButton("Load File (csv, xlsx)")
-        self.btn_load_file.clicked.connect(self.open_file_dialog)
+        self.btn_load_file.clicked.connect(lambda: open_file_dialog(self))
         layout.addWidget(self.lbl_file_status)
         layout.addWidget(self.btn_load_file)
         layout.addWidget(self.create_separator())
@@ -65,13 +66,13 @@ class LimitsRevControlGUI(QWidget):
         self.btn_merge.setEnabled(False) 
         self.btn_merge.clicked.connect(self.merge_to_master)
         layout.addWidget(self.btn_merge)
-        self.update_merge_button_style(enabled=False) # Set initial grey style
 
         # Save to SVN Button
         self.btn_svn = QPushButton("Save to SVN")
         self.btn_svn.setEnabled(False)
         self.btn_svn.clicked.connect(self.save_to_svn)
         layout.addWidget(self.btn_svn)
+        update_merge_button_style(self, enabled=False) # Set initial grey style
         layout.addStretch()
 
         # Exit Button
@@ -81,54 +82,11 @@ class LimitsRevControlGUI(QWidget):
         layout.addWidget(btn_exit)
         self.setLayout(layout)
 
-    def validate_all_conditions(self):
-        """Checks if all criteria are met to enable the final action buttons."""
-        if self.is_logged_in and self.is_jira_valid and self.is_file_loaded:
-            self.btn_merge.setEnabled(True)
-            self.btn_svn.setEnabled(True)
-            self.update_merge_button_style(enabled=True)
-        else:
-            self.btn_merge.setEnabled(False)
-            self.btn_svn.setEnabled(False)
-            self.update_merge_button_style(enabled=False)
-
-    def handle_google_login(self):
-        # Handle login logic
-        self.is_logged_in= True
-        self.lbl_auth_status.setText("CFA Google Account Log Status: 🟢<br>Logged In (example@cfa.harvard.edu)")
-        self.btn_login.setEnabled(False)
-        self.btn_logout.setEnabled(True)
-        self.validate_all_conditions() # Check if we can enable buttons
-        QMessageBox.information(self, "Success", "Google Logged In Successfully!")
-
-    def handle_google_logout(self):
-        # Handle logout logic
-        self.is_logged_in= False
-        self.lbl_auth_status.setText("CFA Google Account Log Status: 🔴<br>Logged Out")
-        self.btn_login.setEnabled(True)
-        self.btn_logout.setEnabled(False)
-        self.validate_all_conditions() # Check if we can enable buttons
-        QMessageBox.information(self, "Success", "Google Logged Out Successfully!")
-
-    def open_file_dialog(self):
-        "Open a file dialog to select a data file (csv or xlsx)."
-        self.fileName, _ = QFileDialog.getOpenFileName(self, "Select Data File", "", "Data Files (*.csv *.xlsx)")
-        if self.fileName:
-            self.lbl_file_status.setText(f"File Status: 🟢<br>Loaded ({self.fileName.split('/')[-1]})")
-            self.is_file_loaded = True
-            self.validate_all_conditions() # Check if we can enable buttons
-
     # --- Utility Methods ---
     def create_separator(self):
         line = QFrame(); line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
         return line
-
-    def update_merge_button_style(self, enabled):
-        if enabled:
-            self.btn_merge.setStyleSheet("background-color: #28a745; color: white; font-size: 18px; font-weight: bold; padding: 15px; border-radius: 5px;")
-        else:
-            self.btn_merge.setStyleSheet("background-color: #d3d3d3; color: #888888; font-size: 18px; font-weight: bold; padding: 15px; border-radius: 5px;")
 
     def merge_to_master(self):
         QMessageBox.information(self, "Merge to Google Sheet Master", f"Merging data from ({self.fileName}) to Master Google Sheets File...")

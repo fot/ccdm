@@ -1,6 +1,7 @@
 from jira import JIRA
 from jira.exceptions import JIRAError
 from PyQt5.QtWidgets import QMessageBox
+from misc import validate_all_conditions
 
 
 def get_user_key(file_path):
@@ -17,7 +18,7 @@ def init_jira_connection():
         server= JIRA_SERVER,
         token_auth= get_user_key("C:/Users/RHoover/Desktop/jira_api_token.txt"),
         timeout= 60)
-    
+
     return jira
 
 
@@ -45,13 +46,13 @@ def check_jira_status(self):
         else:
             icon, color_code= "🔴", "red"
             self.is_jira_valid= False
-        
+
         self.jira_status.setText(
             f"Jira Status: {icon}<br>Ticket: <b style='color:{color_code};'>{ticket_obj}</b>, "
             f"Status: <b style='color:{color_code};'>{status}</b>"
             f"<br>Title: {title}<br>Reporter: {reporter}")
 
-        self.validate_all_conditions() # Check if we can enable buttons
+        validate_all_conditions(self) # Check if we can enable buttons
 
     except ValueError:
         error_message= ("ERROR! Unable to connect to JIRA server.")
