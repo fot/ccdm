@@ -16,6 +16,7 @@ def get_user_specific_credentials():
         os.makedirs(storage_dir)
     return storage_dir
 
+
 def get_credentials():
     SCOPES = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -27,8 +28,8 @@ def get_credentials():
     user_dir = get_user_specific_credentials()
     token_path = os.path.join(user_dir, "token.json")
     credentials_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
-
     creds = None
+
     if os.path.exists(token_path):
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
 
@@ -37,25 +38,30 @@ def get_credentials():
             try:
                 creds.refresh(Request())
             except Exception:
-                creds = None 
+                creds = None
 
         if not creds:
             flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
             try:
                 creds = flow.run_local_server(
-                    port= 0, timeout= 30, prompt="select_account")
+                    port= 0,
+                    timeout= 30,
+                    prompt="select_account",
+                    authorization_prompt_message= "Please complete this login in your browser...")
             except Exception as e:
                 raise Exception(f"Authentication failed or timed out: {e}")
 
+        # Save the credentials locally for the next run
         with open(token_path, "w") as token:
             token.write(creds.to_json())
 
     return creds
 
-def get_oauth2_api_data():
+
+def get_oauth2_api_data(self):
     try:
-        service = build("oauth2", "v2", credentials= get_credentials())
-        user_info = service.userinfo().get().execute()
+        self.oauth_service= build("oauth2", "v2", credentials= get_credentials())
+        user_info= self.oauth_service.userinfo().get().execute()
         return {
             "User ID": user_info.get('id'),
             "Email": user_info.get('email'),
@@ -65,19 +71,19 @@ def get_oauth2_api_data():
         print(f"Error fetching user data: {e}")
         return None
 
-def get_sheets_api_data(self):
-    SPREADSHEET_ID = "15rRk5JAMWXBGiKTly4aP0cUuFE1qECZe01tNESSKXBo"
+
+def get_sheets_api_service(self):
+    SPREADSHEET_ID= "15rRk5JAMWXBGiKTly4aP0cUuFE1qECZe01tNESSKXBo"
     try:
-        service = build("sheets", "v4", credentials= get_credentials())
-        result = service.spreadsheets().values().get(
-            spreadsheetId=SPREADSHEET_ID, 
-            range="Sheet1!A1:P"
-        ).execute()
-        return result.get("values", [])
+        sheets_service= build("sheets", "v4", credentials= get_credentials())
+        result= sheets_service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID, range="Sheet1!A1:Q").execute()
+        sheets_data= result.get("values", [])
+        return sheets_service, sheets_data
+
     except HttpError as e:
         if e.resp.status == 403:
             print(f"\n[!] ACCESS DENIED: {self.oauth2_data['email']} does not have access to this sheet.")
-            # AUTOMATIC FIX: Delete the bad token so the next run forces a new login
             token_path = os.path.join(get_user_specific_credentials(), "token.json")
             if os.path.exists(token_path):
                 os.remove(token_path)
@@ -85,6 +91,7 @@ def get_sheets_api_data(self):
         else:
             print(f"Sheets API Error: {e}")
         os._exit(1)
+
 
 def update_gui(self):
     "Update the GUI wtih the current login status information"
@@ -100,6 +107,7 @@ def update_gui(self):
         self.btn_logout.setEnabled(False)
         self.lbl_auth_status.setText("CFA Google Account Log Status: 🔴<br>Logged Out")
         QMessageBox.information(self, "Success", "Logged out of CFA Google Account Successfully!")
+
 
 def handle_google_login(self):
     """
@@ -120,8 +128,8 @@ def handle_google_login(self):
         - Triggers validate_all_conditions() to refresh action button availability.
     """
     try:
-        self.oauth_data= get_oauth2_api_data()
-        self.sheets_data= get_sheets_api_data(self)
+        self.oauth_data= get_oauth2_api_data(self)
+        self.sheets_service, self.sheets_data= get_sheets_api_service(self)
         self.is_logged_in= True # Declare user logged in
     except Exception as e:
         print(e)
@@ -129,6 +137,7 @@ def handle_google_login(self):
 
     update_gui(self)
     validate_all_conditions(self) # Check if we can enable buttons
+
 
 def handle_google_logout(self):
     """
@@ -145,7 +154,7 @@ def handle_google_logout(self):
         - Triggers validate_all_conditions() to refresh action button availability.
     """
     self.oauth_data= None
-    self.sheets_data= None
+    self.sheets_service, self.sheets_data= None, None
     self.is_logged_in= False
     update_gui(self)
     validate_all_conditions(self) # Check if we can enable buttons

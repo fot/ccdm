@@ -2,11 +2,14 @@ import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QHBoxLayout,
                              QLineEdit, QLabel, QMessageBox, QFrame)
 from PyQt5.QtGui import QIcon
-from misc import open_file_dialog, update_merge_button_style
+from misc import (update_svn_button_style, update_master_button_layout,
+                  open_sheets_master, update_merge_button_style)
+from load_file import open_file_dialog
 from jira_items import check_jira_status
 from google_auth import handle_google_login, handle_google_logout
+from merge_to_master import merge_to_master
 
-class LimitsRevControlGUI(QWidget):
+class LimitsGatekeeperlGUI(QWidget):
     def __init__(self):
         super().__init__()
         # init state tracking
@@ -16,7 +19,7 @@ class LimitsRevControlGUI(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("I want this to be a funny name.")
+        self.setWindowTitle("The Limits Gatekeeper")
         script_dir= os.path.dirname(os.path.abspath(__file__))
         icon_path= os.path.join(script_dir, "app_icon.ico")
         self.setWindowIcon(QIcon(icon_path))
@@ -64,18 +67,26 @@ class LimitsRevControlGUI(QWidget):
         # Merge to Master Button
         self.btn_merge = QPushButton("Merge to Master")
         self.btn_merge.setEnabled(False) 
-        self.btn_merge.clicked.connect(self.merge_to_master)
+        self.btn_merge.clicked.connect(lambda: merge_to_master(self))
         layout.addWidget(self.btn_merge)
-
+        update_merge_button_style(self, enabled=False)
+    
         # Save to SVN Button
         self.btn_svn = QPushButton("Save to SVN")
         self.btn_svn.setEnabled(False)
         self.btn_svn.clicked.connect(self.save_to_svn)
         layout.addWidget(self.btn_svn)
-        update_merge_button_style(self, enabled=False) # Set initial grey style
-        layout.addStretch()
+        update_svn_button_style(self, enabled=False) # Set initial grey style
+
+        # Open Sheets Master Button
+        self.btn_master= QPushButton("Open Sheets Master")
+        self.btn_master.setEnabled(True)
+        self.btn_master.clicked.connect(lambda: open_sheets_master())
+        layout.addWidget(self.btn_master)
+        update_master_button_layout(self)
 
         # Exit Button
+        layout.addStretch()
         btn_exit = QPushButton("Exit")
         btn_exit.setStyleSheet("color: #cc0000; font-weight: bold;")
         btn_exit.clicked.connect(self.close)
