@@ -48,7 +48,6 @@ def how_to_btn_press(self):
 
 def about_app_btn_press(self):
     "Handle pressing of the about app button"
-    print("hello about app")
     message= ("<b>The Limits Gatekeeper v1.0</b><br><br>The Limits Gatekeeper "
               "is a tool developed to enforce the version control process used to "
               """update the "Chandra Limits Master Google Sheets" file. """

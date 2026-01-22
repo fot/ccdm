@@ -27,7 +27,7 @@ def get_credentials():
 
     user_dir = get_user_specific_credentials()
     token_path = os.path.join(user_dir, "token.json")
-    credentials_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
+    credentials_path = os.path.join(user_dir, "credentials.json")
     creds = None
 
     if os.path.exists(token_path):
