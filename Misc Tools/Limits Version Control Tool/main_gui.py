@@ -1,7 +1,10 @@
 import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QHBoxLayout,
-                             QLineEdit, QLabel, QMessageBox, QFrame)
+                             QLineEdit, QLabel, QMessageBox, QFrame, QMenuBar,
+                             QMenu, QAction, QToolButton, QApplication)
 from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import Qt
+from information import how_to_btn_press, about_app_btn_press
 from misc import (update_svn_button_style, update_master_button_layout,
                   open_sheets_master, update_merge_button_style)
 from load_file import open_file_dialog
@@ -17,19 +20,59 @@ class LimitsGatekeeperlGUI(QWidget):
         self.is_jira_valid= False
         self.is_file_loaded= False
         self.initUI()
+        self.add_top_menu_section()
+        self.add_google_auth_section()
+        self.add_file_select_section()
+        self.add_jira_section()
+        self.add_merge_to_master_btn()
+        self.add_save_to_svn_btn()
+        self.add_sheet_master_btn()
+        self.add_exit_btn()
 
     def initUI(self):
         self.setWindowTitle("The Limits Gatekeeper")
         script_dir= os.path.dirname(os.path.abspath(__file__))
         icon_path= os.path.join(script_dir, "app_icon.ico")
         self.setWindowIcon(QIcon(icon_path))
-        self.setGeometry(300, 300, 600, 750)
-        layout = QVBoxLayout()
-        layout.setSpacing(12)
+        width, height= 300, 375
+        self.resize(width, height)
+        screen= QApplication.primaryScreen().availableGeometry()
+        self.move((screen.width() - width) // 2, (screen.height() - height) // 2)
+        self.layout= QVBoxLayout(self)
+        self.layout.setSpacing(12)
 
-        # Google Login Section
+    def add_top_menu_section(self):
+        "Add the top menu to the GUI"
+        self.nav_bar= QMenuBar()
+        self.help_btn= QToolButton()
+        self.help_btn.setText("Help")
+        self.help_btn.setPopupMode(QToolButton.InstantPopup)
+        self.help_btn.setStyleSheet("border: none; padding: 5px;")
+
+        # init the "Help" button in the QMenuBar
+        self.help_menu= QMenu(self.help_btn)
+
+        # Add the Documentation dropdown option
+        doc_action= QAction("How to Use This Tool", self)
+        doc_action.triggered.connect(lambda: how_to_btn_press(self))
+        self.help_menu.addAction(doc_action)
+
+        # Add the About App dropdown option
+        about_action= QAction("About App", self)
+        about_action.triggered.connect(lambda: about_app_btn_press(self))
+        self.help_menu.addAction(about_action)
+
+        # Add the Dropdowns to the Help button
+        self.help_btn.setMenu(self.help_menu)
+        self.nav_bar.setCornerWidget(self.help_btn, Qt.TopRightCorner)
+
+        # Add whole assembly to main layout
+        self.layout.setMenuBar(self.nav_bar)
+
+    def add_google_auth_section(self):
+        "Add the 'CFA Google Account Auth' section to the GUI"
         self.lbl_auth_status= QLabel("CFA Google Account Log Status: 🔴<br>Logged Out")
-        layout.addWidget(self.lbl_auth_status)
+        self.layout.addWidget(self.lbl_auth_status)
         login_button_layout= QHBoxLayout()
         self.btn_login= QPushButton("Login")
         self.btn_login.clicked.connect(lambda: handle_google_login(self))
@@ -38,18 +81,20 @@ class LimitsGatekeeperlGUI(QWidget):
         self.btn_logout.clicked.connect(lambda: handle_google_logout(self))
         login_button_layout.addWidget(self.btn_login)
         login_button_layout.addWidget(self.btn_logout)
-        layout.addLayout(login_button_layout) 
-        layout.addWidget(self.create_separator())
+        self.layout.addLayout(login_button_layout) 
+        self.layout.addWidget(self.create_separator())
 
-        # File Selection Section
+    def add_file_select_section(self):
+        "Add the 'File Selection' section to the GUI"
         self.lbl_file_status = QLabel("File Status: 🔴<br>No file selected")
         self.btn_load_file = QPushButton("Load File (csv, xlsx)")
         self.btn_load_file.clicked.connect(lambda: open_file_dialog(self))
-        layout.addWidget(self.lbl_file_status)
-        layout.addWidget(self.btn_load_file)
-        layout.addWidget(self.create_separator())
+        self.layout.addWidget(self.lbl_file_status)
+        self.layout.addWidget(self.btn_load_file)
+        self.layout.addWidget(self.create_separator())
 
-        # JIRA Section (1 x 2 for input ticket and status button)
+    def add_jira_section(self):
+        "Add the JIRA section to the GUI"
         self.jira_status = QLabel(
             "Jira Status: 🔴<br>Ticket: N/A, Status: N/A<br>Title: N/A<br>Reporter: N/A")
         jira_layout= QHBoxLayout()
@@ -60,38 +105,42 @@ class LimitsGatekeeperlGUI(QWidget):
         self.btn_check_jira.clicked.connect(lambda: check_jira_status(self))
         jira_layout.addWidget(self.jira_ticket)
         jira_layout.addWidget(self.btn_check_jira)
-        layout.addWidget(self.jira_status)
-        layout.addLayout(jira_layout)
-        layout.addWidget(self.create_separator())
+        self.layout.addWidget(self.jira_status)
+        self.layout.addLayout(jira_layout)
+        self.layout.addWidget(self.create_separator())
 
-        # Merge to Master Button
+    def add_merge_to_master_btn(self):
+        "Add the 'Merge to Master' button to the GUI"
         self.btn_merge = QPushButton("Merge to Master")
         self.btn_merge.setEnabled(False) 
         self.btn_merge.clicked.connect(lambda: merge_to_master(self))
-        layout.addWidget(self.btn_merge)
+        self.layout.addWidget(self.btn_merge)
         update_merge_button_style(self, enabled=False)
-    
-        # Save to SVN Button
+
+    def add_save_to_svn_btn(self):
+        "Add the 'Save to SVN' button to the GUI"
         self.btn_svn = QPushButton("Save to SVN")
         self.btn_svn.setEnabled(False)
         self.btn_svn.clicked.connect(self.save_to_svn)
-        layout.addWidget(self.btn_svn)
+        self.layout.addWidget(self.btn_svn)
         update_svn_button_style(self, enabled=False) # Set initial grey style
 
-        # Open Sheets Master Button
+    def add_sheet_master_btn(self):
+        "Add the 'Open Sheets Master' button to the GUI"
         self.btn_master= QPushButton("Open Sheets Master")
         self.btn_master.setEnabled(True)
         self.btn_master.clicked.connect(lambda: open_sheets_master())
-        layout.addWidget(self.btn_master)
+        self.layout.addWidget(self.btn_master)
         update_master_button_layout(self)
 
-        # Exit Button
-        layout.addStretch()
+    def add_exit_btn(self):
+        "Add the exit button to the GUI"
+        self.layout.addStretch()
         btn_exit = QPushButton("Exit")
         btn_exit.setStyleSheet("color: #cc0000; font-weight: bold;")
         btn_exit.clicked.connect(self.close)
-        layout.addWidget(btn_exit)
-        self.setLayout(layout)
+        self.layout.addWidget(btn_exit)
+        self.setLayout(self.layout)
 
     # --- Utility Methods ---
     def create_separator(self):

@@ -118,9 +118,8 @@ def merge_to_master(self):
         append_jira_ticket_num(self)
         update_google_sheet(self)
         update_sheet_format(self)
+        QMessageBox.information(self, "Success",
+                        f"Successfully merged spreadsheet ({self.fileName}) to Google Sheets Master!")
+        clear_loaded_file(self)
     else:
         pass
-
-    QMessageBox.information(self, "Success",
-                            f"Successfully merged spreadsheet ({self.fileName}) to Google Sheets Master!")
-    clear_loaded_file(self)
