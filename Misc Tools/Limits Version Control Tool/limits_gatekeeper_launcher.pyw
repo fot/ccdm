@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt
 from main_gui import LimitsGatekeeperlGUI
 
 try:
-    myappid = "limits gatekeeper.v1"
+    myappid = u'mycompany.limitsgatekeeper.v1'
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except Exception:
     pass

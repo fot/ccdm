@@ -1,7 +1,8 @@
+import os.path
 from jira import JIRA
 from jira.exceptions import JIRAError
-from PyQt5.QtWidgets import QMessageBox
-from misc import validate_all_conditions
+from PyQt5.QtWidgets import QMessageBox, QLabel, QHBoxLayout, QLineEdit, QPushButton
+from misc import validate_all_conditions, get_user_directory, create_separator
 
 
 def get_user_key(file_path):
@@ -13,10 +14,11 @@ def get_user_key(file_path):
 def init_jira_connection():
     "Initializer and return a Jira connection object"
     JIRA_SERVER= "https://occ-cfa.cfa.harvard.edu/"
+    key_dir= os.path.join(get_user_directory(".chandra_limits"), "jira_token.txt")
 
     jira= JIRA(
         server= JIRA_SERVER,
-        token_auth= get_user_key("C:/Users/RHoover/Desktop/jira_api_token.txt"),
+        token_auth= get_user_key(key_dir),
         timeout= 60)
 
     return jira
@@ -62,3 +64,20 @@ def check_jira_status(self):
         handle_jira_error(self, "INVALID TICKET ID", error_message)
 
     validate_all_conditions(self) # Check if we can enable buttons
+
+
+def add_jira_section(self):
+    "Add the JIRA section to the GUI"
+    self.jira_status= QLabel(
+        "Jira Status: 🔴<br>Ticket: N/A, Status: N/A<br>Title: N/A<br>Reporter: N/A")
+    self.jira_layout= QHBoxLayout()
+    self.jira_ticket= QLineEdit()
+    self.jira_ticket.setPlaceholderText("i.e.: CRF-12345")
+    self.jira_ticket.setFixedWidth(200)
+    self.btn_check_jira= QPushButton("Check Status")
+    self.btn_check_jira.clicked.connect(lambda: check_jira_status(self))
+    self.jira_layout.addWidget(self.jira_ticket)
+    self.jira_layout.addWidget(self.btn_check_jira)
+    self.layout.addWidget(self.jira_status)
+    self.layout.addLayout(self.jira_layout)
+    self.layout.addWidget(create_separator(self))

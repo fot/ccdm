@@ -1,8 +1,9 @@
 "Functions to merge input excel file data to master"
 
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QMessageBox, QPushButton
 from google_auth import get_sheets_api_service
 from load_file import clear_loaded_file
+from misc import update_merge_button_style
 
 
 SPREADSHEET_ID= "15rRk5JAMWXBGiKTly4aP0cUuFE1qECZe01tNESSKXBo"
@@ -123,3 +124,12 @@ def merge_to_master(self):
         clear_loaded_file(self)
     else:
         pass
+
+
+def add_merge_to_master_btn(self):
+    "Add the 'Merge to Master' button to the GUI"
+    self.btn_merge= QPushButton("Merge to Master")
+    self.btn_merge.setEnabled(False) 
+    self.btn_merge.clicked.connect(lambda: merge_to_master(self))
+    self.layout.addWidget(self.btn_merge)
+    update_merge_button_style(self, enabled=False)

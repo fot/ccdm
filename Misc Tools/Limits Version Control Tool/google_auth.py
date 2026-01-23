@@ -1,20 +1,14 @@
 import os.path
-from PyQt5.QtWidgets import QMessageBox
-from misc import validate_all_conditions
+from PyQt5.QtWidgets import QMessageBox, QLabel, QPushButton, QHBoxLayout
+from PyQt5.QtCore import Qt
+
+from misc import validate_all_conditions, get_user_directory, create_separator
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-
-
-def get_user_specific_credentials():
-    home = os.path.expanduser("~")
-    storage_dir = os.path.join(home, ".chandra_limits")
-    if not os.path.exists(storage_dir):
-        os.makedirs(storage_dir)
-    return storage_dir
 
 
 def get_credentials():
@@ -25,7 +19,7 @@ def get_credentials():
         "openid"
     ]
 
-    user_dir = get_user_specific_credentials()
+    user_dir = get_user_directory(".chandra_limits")
     token_path = os.path.join(user_dir, "token.json")
     credentials_path = os.path.join(user_dir, "credentials.json")
     creds = None
@@ -158,3 +152,19 @@ def handle_google_logout(self):
     self.is_logged_in= False
     update_gui(self)
     validate_all_conditions(self) # Check if we can enable buttons
+
+
+def add_google_auth_section(self):
+    "Add the 'CFA Google Account Auth' section to the GUI"
+    self.lbl_auth_status= QLabel("CFA Google Account Log Status: 🔴<br>Logged Out")
+    self.layout.addWidget(self.lbl_auth_status)
+    self.login_button_layout= QHBoxLayout()
+    self.btn_login= QPushButton("Login")
+    self.btn_login.clicked.connect(lambda: handle_google_login(self))
+    self.btn_logout= QPushButton("Logout")
+    self.btn_logout.setEnabled(False)
+    self.btn_logout.clicked.connect(lambda: handle_google_logout(self))
+    self.login_button_layout.addWidget(self.btn_login)
+    self.login_button_layout.addWidget(self.btn_logout)
+    self.layout.addLayout(self.login_button_layout) 
+    self.layout.addWidget(create_separator(self))

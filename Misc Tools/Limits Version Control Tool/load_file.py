@@ -1,8 +1,8 @@
 import openpyxl
 from typing import List, Any
-from PyQt5.QtWidgets import QFileDialog
+from PyQt5.QtWidgets import QFileDialog, QLabel, QPushButton
 
-from misc import validate_all_conditions
+from misc import validate_all_conditions, create_separator
 
 
 def load_excel_raw(self) -> List[List[Any]]:
@@ -52,3 +52,13 @@ def clear_loaded_file(self):
     self.excel_file_data= None
     self.is_file_loaded= False
     validate_all_conditions(self) # Check if we can enable buttons
+
+
+def add_file_select_section(self):
+    "Add the 'File Selection' section to the GUI"
+    self.lbl_file_status = QLabel("File Status: 🔴<br>No file selected")
+    self.btn_load_file = QPushButton("Load File (csv, xlsx)")
+    self.btn_load_file.clicked.connect(lambda: open_file_dialog(self))
+    self.layout.addWidget(self.lbl_file_status)
+    self.layout.addWidget(self.btn_load_file)
+    self.layout.addWidget(create_separator(self))
