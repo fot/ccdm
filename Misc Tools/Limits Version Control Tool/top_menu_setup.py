@@ -1,8 +1,10 @@
 "Functions to initialzie the Top Bar Menu in the main GUI"
 
+import os.path
 from misc import get_user_directory
-from PyQt5.QtWidgets import QMessageBox, QMenuBar, QMenu, QAction, QToolButton
-from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QMessageBox, QMenuBar, QMenu, QAction, QToolButton, QFileDialog
+from PyQt5.QtGui import QDesktopServices
+from PyQt5.QtCore import Qt, QUrl
 
 
 def add_top_menu_section(self):
@@ -30,8 +32,8 @@ def add_top_menu_section(self):
     self.file_btn.setStyleSheet("""QToolButton { border: none; padding: 5px; }
                                     QToolButton::menu-indicator { image: none; }""")
     self.file_menu= QMenu(self.file_btn)
-    self.file_action= QAction("Download Template File (.xlsx)")
-    self.file_action.triggered.connect(lambda: print("downloading file..."))
+    self.file_action= QAction("Open Template File (.xlsx)")
+    self.file_action.triggered.connect(lambda: open_template_file(self))
     self.file_menu.addAction(self.file_action)
     self.file_btn.setMenu(self.file_menu)
 
@@ -59,6 +61,7 @@ def add_top_menu_section(self):
     self.nav_bar.setCornerWidget(self.file_btn, Qt.TopLeftCorner)
     self.nav_bar.setCornerWidget(self.help_btn, Qt.TopRightCorner)
     self.layout.setMenuBar(self.nav_bar)
+
 
 def setup_btn_press(self):
     "Handle pressing of the How To Setup User Keys Button."
@@ -146,3 +149,10 @@ def about_app_btn_press(self):
               """update the "Chandra Limits Master Google Sheets" file. """
               "<br><br>Developed By: Ryan Hoover")
     QMessageBox.information(self, "About App", message)
+
+
+def open_template_file(self):
+    "Open the template file when its button is pressed"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    template_path= str(os.path.join(script_dir, "limits_template.xlsx"))
+    QDesktopServices.openUrl(QUrl.fromLocalFile(template_path))
