@@ -78,7 +78,7 @@ def get_sheets_api_service(self):
     except HttpError as e:
         if e.resp.status == 403:
             print(f"\n[!] ACCESS DENIED: {self.oauth2_data['email']} does not have access to this sheet.")
-            token_path = os.path.join(get_user_specific_credentials(), "token.json")
+            token_path = os.path.join(get_user_directory(".chandra_limits"), "token.json")
             if os.path.exists(token_path):
                 os.remove(token_path)
             print("The local token has been cleared. Please restart and pick a different account.")

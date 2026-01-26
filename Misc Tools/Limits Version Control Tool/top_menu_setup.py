@@ -1,6 +1,7 @@
 "Functions to initialzie the Top Bar Menu in the main GUI"
 
 import os.path
+import sys
 from misc import get_user_directory
 from PyQt5.QtWidgets import QMessageBox, QMenuBar, QMenu, QAction, QToolButton, QFileDialog
 from PyQt5.QtGui import QDesktopServices
@@ -151,8 +152,17 @@ def about_app_btn_press(self):
     QMessageBox.information(self, "About App", message)
 
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    if hasattr(sys, '_MEIPASS'):
+        # If running as EXE, look in the temporary folder
+        return os.path.join(sys._MEIPASS, relative_path)
+
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+
+
 def open_template_file(self):
     "Open the template file when its button is pressed"
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    template_path= str(os.path.join(script_dir, "limits_template.xlsx"))
+    template_path= resource_path("limits_template.xltx")
+    print(template_path)
     QDesktopServices.openUrl(QUrl.fromLocalFile(template_path))
