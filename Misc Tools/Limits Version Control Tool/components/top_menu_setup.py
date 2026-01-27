@@ -2,8 +2,8 @@
 
 import os.path
 import sys
-from misc import get_user_directory
-from PyQt5.QtWidgets import QMessageBox, QMenuBar, QMenu, QAction, QToolButton, QFileDialog
+from components.misc import get_user_directory
+from PyQt5.QtWidgets import QMessageBox, QMenuBar, QMenu, QAction, QToolButton
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtCore import Qt, QUrl
 
@@ -164,5 +164,4 @@ def resource_path(relative_path):
 def open_template_file(self):
     "Open the template file when its button is pressed"
     template_path= resource_path("limits_template.xltx")
-    print(template_path)
     QDesktopServices.openUrl(QUrl.fromLocalFile(template_path))

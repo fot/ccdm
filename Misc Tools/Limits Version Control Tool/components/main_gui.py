@@ -4,13 +4,13 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QHBoxLayout,
                              QMenu, QAction, QToolButton, QApplication)
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
-from top_menu_setup import add_top_menu_section
-from misc import add_sheet_master_btn, add_exit_btn
-from load_file import add_file_select_section
-from jira_items import add_jira_section
-from google_auth import add_google_auth_section
-from merge_to_master import add_merge_to_master_btn
-from save_to_svn import add_save_to_svn_btn
+from components.top_menu_setup import add_top_menu_section
+from components.misc import add_sheet_master_btn, add_exit_btn
+from components.load_file import add_file_select_section
+from components.jira_items import add_jira_section
+from components.google_auth import add_google_auth_section
+from components.merge_to_master import add_merge_to_master_btn
+from components.save_to_svn import add_save_to_svn_btn
 
 class LimitsGatekeeperlGUI(QWidget):
     def __init__(self):

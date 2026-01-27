@@ -1,8 +1,6 @@
 import os.path
 from PyQt5.QtWidgets import QMessageBox, QLabel, QPushButton, QHBoxLayout
-from PyQt5.QtCore import Qt
-
-from misc import validate_all_conditions, get_user_directory, create_separator
+from components.misc import validate_all_conditions, get_user_directory, create_separator
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials

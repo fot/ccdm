@@ -2,12 +2,15 @@
 from PyQt5.QtWidgets import QPushButton, QMessageBox, QFileDialog
 from PyQt5.QtCore import Qt
 import os.path
-from pathlib import Path
-# from pathlib import Path
 import openpyxl
 import os
+import subprocess
+import shutil
+import tempfile
+from pathlib import Path
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from misc import update_svn_button_style
+from components.misc import update_svn_button_style
+from components.google_auth import get_sheets_api_service
 
 
 class SVNInstructionBox():
@@ -150,6 +153,10 @@ def sheet_data_to_excel(self):
             OSError: If the directory in `self.svn_path` is invalid or unwritable.
             AttributeError: If `self.sheets_data` or `self.svn_path` are not defined.
     """
+
+    # Refresh the sheets data in the event it was edited externally
+    _, self.sheets_data= get_sheets_api_service(self)
+
     wb= openpyxl.Workbook()
     ws= wb.active
     ws.title= "Chandra Limits"
@@ -191,12 +198,126 @@ def sheet_data_to_excel(self):
                 max_length = max(max_length, len(str(cell.value)))
         ws.column_dimensions[column].width = max_length + 2
 
-    wb.save(os.path.join(self.svn_path,"chandra_limits.xlsx"))
+    file_output_path= Path(self.svn_path) / "chandra_limits.xlsx"
+
+    try:
+        wb.save(file_output_path)
+    except PermissionError:
+        # This triggers if the file is open in Excel
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Critical)
+        msg.setText("Cannot Save File")
+        msg.setInformativeText(
+            f"The file '{file_output_path.name}' is currently open in another program (likely Excel).\n\n"
+            "Please close the file and click OK to try again."
+        )
+        msg.setWindowTitle("Permission Error")
+        msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        
+        if msg.exec_() == QMessageBox.Ok:
+            # Recursive call to try saving again
+            sheet_data_to_excel(self) 
+        else:
+            return False # User cancelled
+
+
+def svn_commit_file(self):
+    """
+        Commits the 'chandra_limits.xlsx' file to the Subversion repository using 
+        bundled portable SVN tools.
+
+        This function handles the specific challenges of running portable binaries 
+        from a network share (UNC paths) and managing DLL dependencies in 
+        modern Python environments.
+
+        Key Features:
+        ----------
+        - Dynamic Path Resolution: Locates 'svn-tools' relative to the script 
+        location to maintain portability across different user environments.
+        - DLL Management: Uses 'os.add_dll_directory' (Python 3.8+) to explicitly 
+        trust the bundled bin folder, resolving 'libapr-1.dll not found' errors.
+        - Path Priority: Prepend the bin directory to the system PATH environment 
+        variable for the duration of the subprocess call.
+        - UNC Path Workaround: Sets the 'cwd' (Current Working Directory) to a 
+        local disk path (the file's parent directory) to prevent CMD errors 
+        when executing binaries from a network share.
+
+        Attributes Required:
+        -------------------
+        - self.svn_path (str/Path): The local directory of the SVN checkout.
+        - self.ticket_obj (str, optional): JIRA ticket number for the commit message.
+
+        Returns:
+        -------
+        - bool: True if 'add' and 'commit' operations were successful, False otherwise.
+
+        Raises:
+        -------
+        - subprocess.CalledProcessError: Captured internally; prints STDOUT and 
+        STDERR to the console for debugging.
+    """
+    # Locate the svn-tools directory relative to this component file
+    component_dir = Path(__file__).resolve().parent
+
+    # Try current folder, then one level up (root)
+    svn_bin_dir = component_dir / "svn-tools" / "bin"
+    if not svn_bin_dir.exists():
+        svn_bin_dir = component_dir.parent / "svn-tools" / "bin"
+
+    svn_exe = svn_bin_dir / "svn.exe"
+
+    # Safety Check
+    if not svn_exe.exists():
+        print(f"CRITICAL: svn.exe not found at: {svn_exe}")
+        return False
+
+    # Pathing for Excel file
+    file_path = Path(self.svn_path) / "chandra_limits.xlsx"
+    ticket = getattr(self, "ticket_obj", "No JIRA Ticket")
+    commit_message = f"Updated chandra_limits.xlsx ({ticket})"
+
+    # Environment and DLL Handling
+    # Adding the bin directory to PATH ensures svn.exe can see libapr-1.dll 
+    # even when running from a network share.
+    env = os.environ.copy()
+    env["PATH"] = str(svn_bin_dir) + os.pathsep + env.get("PATH", "")
+
+    # For Python 3.8+, we must explicitly trust the DLL directory
+    dll_handler = None
+    if hasattr(os, 'add_dll_directory'):
+        dll_handler = os.add_dll_directory(str(svn_bin_dir))
+
+    try:
+        subprocess.run(
+            [str(svn_exe), "add", str(file_path), "--force"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(file_path.parent) # Change working directory to local disk
+        )
+
+        subprocess.run(
+            [str(svn_exe), "commit", str(file_path), "-m", commit_message],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(file_path.parent)
+        )
+        return True
+
+    except subprocess.CalledProcessError as e:
+        print(f"SVN FAILED.\nSTDOUT: {e.stdout}\nSTDERR: {e.stderr}")
+        return False
+
+    finally:
+        if dll_handler:
+            dll_handler.close()
 
 
 def open_svn_save_diaglog(self):
     "Open the SVN Directory Select Dialog Box"
-
     instr_box= SVNInstructionBox()
     commit_box= SVNCommitBox()
     instr_box.svn_instruction_box.exec_()
@@ -209,7 +330,14 @@ def open_svn_save_diaglog(self):
         commit_box.svn_commit_box.exec_()
 
         if commit_box.svn_commit_box.clickedButton() == commit_box.svn_cont_btn:
-            print("Call SVN Commit Action here....")
+            commit_success= svn_commit_file(self)
+
+            if commit_success:
+                QMessageBox.information(self, "File Successfully Commited",
+                                        f"Successfully SVN commited chandra_limits.xlsx to repo")
+            else:
+                QMessageBox.information(self, "File Commit Failed",
+                                        f"Diddy didn't do it.")
 
 
 def add_save_to_svn_btn(self):

@@ -1,8 +1,7 @@
 import openpyxl
 from typing import List, Any
-from PyQt5.QtWidgets import QFileDialog, QLabel, QPushButton, QMessageBox
-
-from misc import validate_all_conditions, create_separator
+from PyQt5.QtWidgets import QFileDialog, QLabel, QPushButton
+from components.misc import validate_all_conditions, create_separator
 
 
 def load_excel_raw(self) -> List[List[Any]]:

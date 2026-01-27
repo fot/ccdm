@@ -1,9 +1,9 @@
 "Functions to merge input excel file data to master"
 
 from PyQt5.QtWidgets import QMessageBox, QPushButton
-from google_auth import get_sheets_api_service
-from load_file import clear_loaded_file
-from misc import update_merge_button_style
+from components.google_auth import get_sheets_api_service
+from components.load_file import clear_loaded_file
+from components.misc import update_merge_button_style
 
 
 SPREADSHEET_ID= "15rRk5JAMWXBGiKTly4aP0cUuFE1qECZe01tNESSKXBo"

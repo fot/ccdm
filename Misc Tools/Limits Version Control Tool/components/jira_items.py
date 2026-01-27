@@ -2,7 +2,7 @@ import os.path
 from jira import JIRA
 from jira.exceptions import JIRAError
 from PyQt5.QtWidgets import QMessageBox, QLabel, QHBoxLayout, QLineEdit, QPushButton
-from misc import validate_all_conditions, get_user_directory, create_separator
+from components.misc import validate_all_conditions, get_user_directory, create_separator
 
 
 def get_user_key(file_path):
