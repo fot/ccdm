@@ -1,6 +1,6 @@
 import openpyxl
 from typing import List, Any
-from PyQt5.QtWidgets import QFileDialog, QLabel, QPushButton
+from PyQt5.QtWidgets import QFileDialog, QLabel, QPushButton, QMessageBox
 
 from misc import validate_all_conditions, create_separator
 
@@ -37,13 +37,13 @@ def load_excel_raw(self) -> List[List[Any]]:
 
 
 def open_file_dialog(self):
-    "Open a file dialog to select a data file (csv or xlsx)."
-    self.fileName, _ = QFileDialog.getOpenFileName(self, "Select Data File", "", "Data Files (*.csv *.xlsx)")
-    if self.fileName:
+    "Open a file dialog to select a data file (xlsx)."
+    self.fileName, _ = QFileDialog.getOpenFileName(self, "Select Data File", "", "Excel File (*.xlsx)")
+    if ".xlsx" in self.fileName:
         self.lbl_file_status.setText(f"File Status: 🟢<br>Loaded ({self.fileName.split('/')[-1]})")
         self.excel_file_data= load_excel_raw(self)
         self.is_file_loaded = True
-        validate_all_conditions(self) # Check if we can enable buttons
+        validate_all_conditions(self)
 
 
 def clear_loaded_file(self):
@@ -57,7 +57,7 @@ def clear_loaded_file(self):
 def add_file_select_section(self):
     "Add the 'File Selection' section to the GUI"
     self.lbl_file_status = QLabel("File Status: 🔴<br>No file selected")
-    self.btn_load_file = QPushButton("Load File (csv, xlsx)")
+    self.btn_load_file = QPushButton("Load File (.xlsx)")
     self.btn_load_file.clicked.connect(lambda: open_file_dialog(self))
     self.layout.addWidget(self.lbl_file_status)
     self.layout.addWidget(self.btn_load_file)
