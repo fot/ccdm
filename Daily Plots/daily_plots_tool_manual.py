@@ -25,7 +25,7 @@ class UserVariables:
         while True:
             system("clear")
             print("----Daily Plots Tool v1.4----")
-            self.ssr_prime= ["A","2025:032:03:34:11"]
+            self.ssr_prime= ["B","2026:032:02:36:45"]
             self.year_start= get_year_start()
             self.doy_start= get_doy_start()
             self.year_end= get_year_end(self)
