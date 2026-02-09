@@ -1,5 +1,6 @@
 "Generate the Status Report"
 
+from datetime import datetime
 from components.misc import make_output_dir, format_doy
 from components.status_report.components.spurious_cmd_lock_detection import (
     spurious_cmd_lock_detection)
@@ -30,6 +31,9 @@ def generate_status_report(user_vars, auto_gen= False):
         )
 
     with open(f"{set_dir}/{file_title}.txt", "w+", encoding= "utf-8") as file:
+        file.write(f"{file_title}\n(Generated on "
+                   f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC)\n"
+                   f"{'-'*145}\n{'-'*145}\n")
         tlm_corruption_detection(user_vars, file)
         obc_error_detection(user_vars, file)
         limit_violation_detection(user_vars, file)
@@ -43,10 +47,9 @@ def generate_status_report(user_vars, auto_gen= False):
 def misc_detection(user_vars, file):
     "Add misc detection items to report file"
     print("\nMisc Detection Items...")
-    line= "-----------------------------"
     file.write(
         f"Misc Detected Items for {user_vars.year_start}:{format_doy(user_vars.doy_start)} "
-        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" + line+line+line + "\n")
+        f"thru {user_vars.year_end}:{format_doy(user_vars.doy_end)}\n\n" + "-"*87 + "\n")
 
     vcdu_rollover_detection(user_vars,file)
     spurious_cmd_lock_detection(user_vars,file)
@@ -57,5 +60,5 @@ def misc_detection(user_vars, file):
     weeks_without_paul(file)
 
     file.write("\n  ----------END OF MISC DETECTION----------")
-    file.write("\n" +line+line+line+line+line + "\n" +line+line+line+line+line + "\n")
+    file.write("\n" + "-"*149 + "\n" + "-"*149 + "\n")
     print(" - Done! Data written to Misc section.")
