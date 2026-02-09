@@ -26,17 +26,14 @@ def generate_power_amp_data_plots(user_vars, auto_gen= False):
 
     if auto_gen:
         figure_title= (
-            "Chandra CCDM Daily Plots - Power Amplifier Data (Auto-Gen 14-Day Lookback)"
-            f"<br><sup>(Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')})</sup>"
-            )
+            "Chandra CCDM Daily Plots - Power Amplifier Data (Auto-Gen 14-Day Lookback)")
     else:
         figure_title= (
             "Chandra CCDM Daily Plots - Power Amplifier Data" + 
             f" ({user_vars.year_start}" + f"{user_vars.doy_start}" + "_" +
-            f"{user_vars.year_end}" + f"{user_vars.doy_end}" + f" {user_vars.data_source})"
-            )
+            f"{user_vars.year_end}" + f"{user_vars.doy_end}" + f" {user_vars.data_source})")
 
-    gen_date= f"<br><sup>(Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) UTC</sup>"
+    gen_date= f"<br><sup>(Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC)</sup>"
     yaxis_titles= {1:"Volts",2:"DegF",5:"dBm",6:"Range (km)",7:"High/Low",8:"High/Low"}
 
     add_pa_sec_volt_data_plot(user_vars, figure)
