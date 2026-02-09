@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from tqdm import tqdm
+from typing import Optional
 from components.misc import format_doy
 
 @dataclass
@@ -12,7 +13,7 @@ class LimitViolationData:
     date:   datetime
     msid:   str
     status: str
-    measured_value: str
+    measured_value: Optional[str]
     operator:       str
     expected_value: str
 
@@ -67,9 +68,14 @@ def parse_limit_report(file_dir):
                     data_point.date=   datetime.strptime(split_line[0],"%Y%j.%H%M%S")
                     data_point.msid=   split_line[2]
                     data_point.status= split_line[3]
-                    data_point.measured_value= split_line[4]
-                    data_point.operator=       split_line[5]
-                    data_point.expected_value= split_line[6]
+                    try:
+                        data_point.measured_value= split_line[4]
+                        data_point.operator= split_line[5]
+                        data_point.expected_value= split_line[6]
+                    except IndexError: # Assume 2nd format is len(split_line) <= 5.
+                        data_point.measured_value= None
+                        data_point.operator= split_line[4]
+                        data_point.expected_value= split_line[5]
 
                 if data_point.msid != str:
                     data_list.append(data_point)

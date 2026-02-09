@@ -40,8 +40,8 @@ def main():
         generate_power_amp_data_plots(user_vars, True)
         generate_status_report(user_vars, True)
     except BaseException as err:
-        print("Interrupted plot generation. Canceling auto-run for today....\n")
         print(err)
+        print("Interrupted plot generation. Canceling auto-run for today....\n")
 
 
 main()
