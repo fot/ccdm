@@ -33,7 +33,7 @@ def generate_receiver_data_plots(user_vars, auto_gen= False):
             f" ({user_vars.year_start}" + f"{user_vars.doy_start}" + "_" +
             f"{user_vars.year_end}" + f"{user_vars.doy_end}" + f" {user_vars.data_source})")
 
-    gen_date= f"<br><sup>(Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) UTC</sup>"
+    gen_date= f"<br><sup>(Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC)</sup>"
     yaxis_titles= {
         1:"kHz",2:"dBm",3:"NLCK/LOCK",4:"NLCK/LOCK",
         7:"Volts",8:"Range (km)",10:"HIGH/LOW"}
