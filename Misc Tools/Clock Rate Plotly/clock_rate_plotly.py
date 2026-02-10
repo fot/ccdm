@@ -160,22 +160,25 @@ def year_plot(plot):
 def biannual_plot(plot):
     "format and write the current biannual plot"
     while True:
-        bi_period_start= input(" - Enter biannual period start (yyyy:ddd): ")
-        bi_period_end=   input(" - Enter biannual period end (yyyy:ddd): ")
-
-        if input(f" - Is '{bi_period_start} to {bi_period_end}' correct? (y/n): ").lower() in ["y"]:
-            break
+        try:
+            start_date= datetime.strptime(input(" - Enter biannual period start (yyyy:ddd): "),
+                                          "%Y:%j")
+            end_date=   datetime.strptime(input(" - Enter biannual period end (yyyy:ddd): "),
+                                          "%Y:%j")
+        except ValueError:
+            print(" - Invalid date format. Please enter dates in 'yyyy:ddd' format.")
+            continue
+        break
 
     plot.plot.update_layout(
         title= dict(xanchor= "center", yanchor= "top", y= 0.95, x=0.5, font= dict(size= 30),
-                    text= f"{bi_period_start} - {bi_period_end} Daily Clock Rate"),
+                    text= f"{start_date.strftime("%b %Y")} - {end_date.strftime("%b %Y")} Daily Clock Rate"),
         xaxis= dict(showline= True, linewidth= 1, linecolor= "black", mirror= True,
                     title= dict(text= "Date", font= dict(size= 30)),
-                    range= [datetime.strptime(bi_period_start, "%Y:%j").date() - timedelta(days=5),
-                            datetime.strptime(bi_period_end, "%Y:%j").date() + timedelta(days=5)]),
+                    range= [start_date.date() - timedelta(days=5), end_date.date() + timedelta(days=5)]),
         yaxis= dict(gridcolor= "black", mirror= True, linewidth= 1, linecolor= "black",
                     title= dict(text= "Rate (seconds/seconds)", font= dict(size= 30)),
-                    range= get_y_ranges(plot, "biannual", bi_period_start)))
+                    range= get_y_ranges(plot, "biannual", start_date.strftime("%Y:%j"))))
 
     # Write to user desktop directory
     set_dir= Path.home() / "Desktop"
@@ -228,7 +231,7 @@ def main():
     mission_plot(plot)
     year_plot(plot)
 
-    if input(" - Do you want to open the plot in a web browser? Y/N: ") in ("Y", "y"):
+    if input(" - Do you want to open the plot in a web browser? (y/n): ").lower() in ("y"):
         plot.plot.show()
 
     if input(" - Do you want to create a biannual plot? (y/n): ").lower() in ["y"]:
