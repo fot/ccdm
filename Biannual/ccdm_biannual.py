@@ -663,6 +663,9 @@ def fetch_ska_data(user_vars,data,mission=False):
         df_means= pd.concat([df_means,df_mean],axis=1)
         df_maxes= pd.concat([df_maxes,df_max],axis=1)
 
+        for df in (df_mins, df_means, df_maxes):
+            df.index.name= "Mission Day"
+
     write_csv_file(
         user_vars,df_mins,("biannual_mins_LS.csv" if not mission else "mission_mins.csv")
         )
@@ -693,37 +696,26 @@ def generate_report_tables(user_vars):
         ]
 
     df_mins = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_mins_LS.csv")
-    tmp = list(df_mins.columns)
-    tmp[0] = 'Mission Day'
-    df_mins.columns = tmp
-
     df_means = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_means_LS.csv")
-    tmp = list(df_means.columns)
-    tmp[0] = 'Mission Day'
-    df_means.columns = tmp
-
     df_maxes = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_maxes_LS.csv")
-    tmp = list(df_maxes.columns)
-    tmp[0] = 'Mission Day'
-    df_maxes.columns = tmp
 
     df_rf = pd.concat([
         df_means.loc[:,rf_msids].mean(),df_mins.loc[:,rf_msids].min(),
-        df_maxes.loc[:,rf_msids].max()],axis=1
+        df_maxes.loc[:,rf_msids].max()],axis=1,
         )
     df_cdme = pd.concat([
         df_means.loc[:,cdme_msids].mean(),df_mins.loc[:,cdme_msids].min(),
-        df_maxes.loc[:,cdme_msids].max()],axis=1
+        df_maxes.loc[:,cdme_msids].max()],axis=1,
         )
     df_all_means = df_means.loc[:,:]
     df_all_mins = df_mins.loc[:,:]
     df_all_maxes = df_maxes.loc[:,:]
 
-    write_csv_file(user_vars,df_rf,"rf_stats.csv")
-    write_csv_file(user_vars,df_cdme,"cdme_stats.csv")
-    write_csv_file(user_vars,df_all_means,"period_means.csv")
-    write_csv_file(user_vars,df_all_mins,"period_mins.csv")
-    write_csv_file(user_vars,df_all_maxes,"period_maxes.csv")
+    write_csv_file(user_vars,df_rf,"rf_stats.csv", False)
+    write_csv_file(user_vars,df_cdme,"cdme_stats.csv", False)
+    write_csv_file(user_vars,df_all_means,"period_means.csv", False)
+    write_csv_file(user_vars,df_all_mins,"period_mins.csv", False)
+    write_csv_file(user_vars,df_all_maxes,"period_maxes.csv", False)
 
 
 def generate_full_mission_tables(user_vars):
@@ -736,42 +728,18 @@ def generate_full_mission_tables(user_vars):
     print(" - Generating Full Mission Table csv(s)...")
 
     df_means_per = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_means_LS.csv")
-    tmp = list(df_means_per.columns)
-    tmp[0] = "Mission Day"
-    df_means_per.columns = tmp
-
     df_mins_per = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_mins_LS.csv")
-    tmp = list(df_mins_per.columns)
-    tmp[0] = "Mission Day"
-    df_mins_per.columns = tmp
-
     df_maxes_per = parse_csv_file(user_vars.set_dir + "/Output/" + "biannual_maxes_LS.csv")
-    tmp = list(df_maxes_per.columns)
-    tmp[0] = "Mission Day"
-    df_maxes_per.columns = tmp
-
     df_means  = parse_csv_file(user_vars.set_dir + "/mission_means.csv")
-    tmp = list(df_means.columns)
-    tmp[0] = "Mission Day"
-    df_means.columns = tmp
-
     df_mins  = parse_csv_file(user_vars.set_dir + "/mission_mins.csv")
-    tmp = list(df_mins.columns)
-    tmp[0] = "Mission Day"
-    df_mins.columns = tmp
-
     df_maxes  = parse_csv_file(user_vars.set_dir + "/mission_maxes.csv")
-    tmp = list(df_maxes.columns)
-    tmp[0] = "Mission Day"
-    df_maxes.columns = tmp
+    df_means_full = pd.concat([df_means,df_means_per])
+    df_mins_full = pd.concat([df_mins,df_mins_per])
+    df_maxes_full = pd.concat([df_maxes,df_maxes_per])
 
-    df_means_full = pd.concat([df_means,df_means_per],ignore_index=True)
-    df_mins_full = pd.concat([df_mins,df_mins_per],ignore_index=True)
-    df_maxes_full = pd.concat([df_maxes,df_maxes_per],ignore_index=True)
-
-    write_csv_file(user_vars,df_means_full,"full_mission_means.csv")
-    write_csv_file(user_vars,df_mins_full,"full_mission_mins.csv")
-    write_csv_file(user_vars,df_maxes_full,"full_mission_maxes.csv")
+    write_csv_file(user_vars,df_means_full,"full_mission_means.csv",False)
+    write_csv_file(user_vars,df_mins_full,"full_mission_mins.csv",False)
+    write_csv_file(user_vars,df_maxes_full,"full_mission_maxes.csv",False)
 
 
 def generate_appendix_figure(user_vars,df_means,df_mins,df_maxes,mission=False):
@@ -805,23 +773,22 @@ def generate_appendix_figure(user_vars,df_means,df_mins,df_maxes,mission=False):
         figure = go.Figure()
         figure.add_trace(
             go.Scatter(
-                x = df_means["Mission Day"], y = df_mins[cur_msid],
-                name = "Min", line = {"color":"blue","width":1}
-                )
-            )
+                x = [datetime.strptime(date, "%Y:%j") for date in df_mins["Mission Day"]],
+                y = df_mins[cur_msid],
+                name = "Min", line = {"color":"blue","width":1}))
+
         figure.add_trace(
             go.Scatter(
-                x = df_means["Mission Day"], y = df_maxes[cur_msid],
-                name = "Max", line = {"color":"green","width":1}
-                )
-            )
+                x = [datetime.strptime(date, "%Y:%j") for date in df_maxes["Mission Day"]],
+                y = df_maxes[cur_msid],
+                name = "Max", line = {"color":"green","width":1}))
+
         figure.add_trace(
             go.Scatter(
-                x = df_means["Mission Day"], y = df_means[cur_msid],
-                name = "Mean", line = {"color":"black","width":3}
-                )
-            )
-        figure.update_yaxes(range = ranges[cur_msid])
+                x = [datetime.strptime(date, "%Y:%j") for date in df_means["Mission Day"]],
+                y = df_means[cur_msid],
+                name = "Mean", line = {"color":"black","width":3}))
+
         figure.update_layout(
             title=(
                 f"{msid.technical_name} Limits:({warn_low}/{caut_low}:"
@@ -829,19 +796,13 @@ def generate_appendix_figure(user_vars,df_means,df_mins,df_maxes,mission=False):
                 ),
             xaxis_title = "Mission Date", yaxis_title = f"{msid.eng_unit}",
             autosize = False, width = 1400, height = 800,
-            legend = {
-                "orientation": "h",
-                "yanchor": "bottom",
-                "y": 1.02,
-                "xanchor": "center",
-                "x": 0.1
-                },
-            font = {
-                "family": "Courier New, monospace",
-                "size": 20,
-                "color": "RebeccaPurple"
-                },
+            legend= dict(orientation= "h", yanchor= "bottom", y= 1.02, xanchor= "center", x= 0.1),
+            font= dict(family= "Courier New, monospace", size= 20, color= "RebeccaPurple"),
+            xaxis= dict(tickformat= "%Y", nticks= 40, tickangle= 90, automargin= True, ticks= "outside"),
+            yaxis= dict(range= ranges[cur_msid]),
+            margin= dict(b= 150),
             )
+
         write_png_file(user_vars,figure,f"{cur_msid}.png" if mission else f"period_{cur_msid}.png")
 
 
