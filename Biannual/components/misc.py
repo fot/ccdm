@@ -9,10 +9,10 @@ def write_html_file(user_vars, figure, file_name):
     figure.write_html(f"{user_vars.set_dir}/Output/{file_name}")
 
 
-def write_csv_file(user_vars, data, file_name):
+def write_csv_file(user_vars, data, file_name, index= True):
     "Writes data to csv file"
     print(f"""  - Writing data to "{file_name}" in {user_vars.set_dir}...""")
-    data.to_csv(f"{user_vars.set_dir}/Output/{file_name}")
+    data.to_csv(f"{user_vars.set_dir}/Output/{file_name}", index= index)
 
 
 def write_png_file(user_vars, figure, file_name):
