@@ -748,7 +748,7 @@ def generate_appendix_figure(user_vars,df_means,df_mins,df_maxes,mission=False):
     ranges = {
         "CRXAV": [3.8,4.2], "CRXBV": [3.8,4.2], "CRXASIG": [-140,-40], "CRXBSIG": [-140,-40],
         "CRXALS": [-200,200], "CRXBLS": [-200,200], "CTXAV": [3.4,3.7], "CTXBV": [3.4,3.7],
-        "CTXAPWR": [36,37], "CTXBPWR": [36,37], "CPA1V": [3.8,4.2], "CPA2V": [3.8,4.2],
+        "CTXAPWR": [36,37], "CTXBPWR": [36,38], "CPA1V": [3.8,4.2], "CPA2V": [3.8,4.2],
         "CPA1PWR":  [32,42], "CPA2PWR":  [32,42], "CXO5VOBA": [4.7,5.2], "CXO5VOBB": [4.7,5.2],
         "CUSOAOVN": [0,1], "CUSOA28V": [22,30], "CSSR1CAV": [0,6], "CSSR2CBV": [0,6]
         }
