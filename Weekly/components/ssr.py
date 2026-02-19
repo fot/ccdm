@@ -2,15 +2,15 @@
 
 import pandas as pd
 import urllib
-from datetime import timedelta
+from datetime import datetime, timedelta
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 from pathlib import Path
 from dataclasses import dataclass
+from typing import Optional
 from cxotime import CxoTime
 from components.data_requests import maude_data_request as maude_data
 from components.data_requests import ska_data_request as ska_data
-
 
 @dataclass
 class SSRData:
@@ -19,6 +19,12 @@ class SSRData:
     ssra_bad:  None
     ssrb_good: None
     ssrb_bad:  None
+
+@dataclass
+class SSRRolloverData:
+    "dataclass for an SSR Rollover event"
+    rollover_type: Optional[str]
+    time: Optional[datetime]
 
 @dataclass
 class BEATData:
@@ -160,12 +166,6 @@ def get_wk_list(user_vars,all_beat_report_data):
     return len(wk_list)
 
 
-def ssr_rollover_detection(user_vars):
-    "ssr rollover detection"
-    ssr_rollover_data = get_ssr_rollover_data(user_vars)
-    return add_ssr_rollovers(user_vars,ssr_rollover_data)
-
-
 def get_ssr_rollover_data(user_vars):
     """
     Description: Find datetimes and data points when SSRs rolled over
@@ -173,72 +173,70 @@ def get_ssr_rollover_data(user_vars):
     Output: <dict>
     """
     print("SSR Rollover Detection...")
-    ssr_data = ska_data(user_vars.ts, user_vars.tp, f"COS{user_vars.ssr_prime[0]}RCEN")
-    ssr_times, ssr_values = ssr_data.times, ssr_data.vals
-    ssr_rollover_datetimes = {}
 
-    # Shorten data list to only when SSR Prime was not recording
-    for index, (time, value) in enumerate(zip(ssr_times, ssr_values)):
+    ssr_swap_check= user_vars.ts <= CxoTime(user_vars.ssr_prime[1]) <= user_vars.tp
+    ssr_rollovers= []
 
-        # Detect rollover from prime to backup
-        if (ssr_values[index - 1] == "TRUE"
-            and value == "FALS"
-            and CxoTime(time).strftime("%j") != user_vars.ts.datetime.strftime('%j')
-            and CxoTime(time).strftime("%j") != user_vars.tp.datetime.strftime('%j')
-        ):
-            ssr_rollover_datetimes.setdefault("Prime to Backup",[]).append(
-                CxoTime(time).datetime)
+    if not ssr_swap_check: # Skip if SSR swap occurred inside of date range
+        ssr_data = ska_data(user_vars.ts, user_vars.tp, f"COS{user_vars.ssr_prime[0]}RCEN")
+        previous_value= None
 
-        # Detect rollover from backup to prime (exclude last data point)
-        try:
-            if (value == "FALS"
-                and ssr_values[index + 1] == "TRUE"
-                and CxoTime(time).strftime("%j") != user_vars.ts.datetime.strftime('%j')
-                and CxoTime(time).strftime("%j") != user_vars.tp.datetime.strftime('%j')
-            ):
-                ssr_rollover_datetimes.setdefault("Backup to Prime",[]).append(
-                    CxoTime(time).datetime)
-        except IndexError: # drop the last data point, can't look at index+1 on last value
-            pass
+        # Shorten data list to only when SSR Prime was not recording
+        for time, value in zip(ssr_data.times, ssr_data.vals):
 
-    return ssr_rollover_datetimes
+            # Detect rollover from prime to backup
+            if (previous_value == "TRUE" and value == "FALS"):
+                ssr_rollovers.append(SSRRolloverData("Rollover", CxoTime(time).datetime))
 
+            # Detect rollover from backup to prime
+            elif (previous_value == "FALS" and value == "TRUE"):
+                ssr_rollovers.append(SSRRolloverData("Recovery", CxoTime(time).datetime))
 
-def add_ssr_rollovers(user_vars, rollover_data):
-    "Add SSR rollover data to config_section string"
-    return_string = ""
+            previous_value= value
 
-    if user_vars.ssr_prime[0] == "A":
-        backup = "B"
     else:
-        backup = "A"
+        ssr_rollovers.append(SSRRolloverData("Unavailable", None))
 
-    if rollover_data:
-        zip_data = zip(rollover_data["Prime to Backup"],
-                       rollover_data["Backup to Prime"])
+    return ssr_rollovers
 
-        for prime_to_backup, backup_to_prime in zip_data:
-            rollover_date = prime_to_backup.strftime("%Y:%j:%H:%M:%S.%f")
-            recovery_date = backup_to_prime.strftime("%Y:%j:%H:%M:%S.%f")
+
+def ssr_rollover_detection(user_vars):
+    "ssr rollover detection"
+    return_string = str()
+    ssr_rollover_data = get_ssr_rollover_data(user_vars)
+
+    # Build the return string with rollover info.
+    prime= "A" if user_vars.ssr_prime[0] == "A" else "B"
+    backup= "B" if prime == "A" else "A"
+
+    if ssr_rollover_data:
+        for data_point in ssr_rollover_data:
 
             # Assemble the final string
-            return_string += (
-                    f"<li>SSR Rollover from SSR-{user_vars.ssr_prime[0]} "
-                    f"to SSR-{backup} on {rollover_date}z</li>")
-            print(f"   - SSR Rollover from SSR-{user_vars.ssr_prime[0]} "
-                  f"to SSR-{backup} on {rollover_date}")
+            if data_point.rollover_type == "Unavailable":
+                return_string= (
+                    f"<li>SSR Rollover data is unavailable due to an SSR prime swap "
+                    f"on {user_vars.ssr_prime[1]}z</li>")
+                print(f"   - SSR Rollover data is unavailable due to an SSR prime swap "
+                      f"on {user_vars.ssr_prime[1]}z")
+                break
 
-            return_string += (
-                    f"<li>SSR Recovery from SSR-{backup} "
-                    f"to SSR-{user_vars.ssr_prime[0]} on {recovery_date}z</li>")
-            print(f"   - SSR Recovery from SSR-{backup} "
-                  f"to SSR-{user_vars.ssr_prime[0]} on {recovery_date}")
+            if data_point.rollover_type == "Rollover":
+                return_string += (
+                    f"<li>SSR {data_point.rollover_type} from SSR-{prime} "
+                    f"to SSR-{backup} on {data_point.time}z</li>")
+                print(f"   - SSR Rollover from SSR-{prime} to SSR-{backup} on {data_point.time}")
+
+            if data_point.rollover_type == "Recovery":
+                return_string += (
+                    f"<li>SSR {data_point.rollover_type} from SSR-{backup} "
+                    f"to SSR-{prime} on {data_point.time}z</li>")
+                print(f"   - SSR Recovery from SSR-{backup} to SSR-{prime} on {data_point.time}")
 
     else:
         print("   - No SSR rollover detected.")
 
-    return_string += "</li></ul></div></div>"
-    return return_string
+    return f"{return_string}</li></ul></div></div>"
 
 
 def make_ssr_by_submod(ssr,user_vars,all_beat_report_data,ftitle):
