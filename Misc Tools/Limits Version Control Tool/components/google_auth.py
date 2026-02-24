@@ -85,22 +85,6 @@ def get_sheets_api_service(self):
         os._exit(1)
 
 
-def update_gui(self):
-    "Update the GUI wtih the current login status information"
-    if self.is_logged_in:
-        self.btn_login.setEnabled(False)
-        self.btn_logout.setEnabled(True)
-        self.lbl_auth_status.setText(
-            f"CFA Google Account Log Status: 🟢<br>Logged In ({self.oauth_data['Email']})")
-        QMessageBox.information(self, "Success",
-                                f"Logged in to CFA Google Account ({self.oauth_data['Email']}) Successfully!")
-    else:
-        self.btn_login.setEnabled(True)
-        self.btn_logout.setEnabled(False)
-        self.lbl_auth_status.setText("CFA Google Account Log Status: 🔴<br>Logged Out")
-        QMessageBox.information(self, "Success", "Logged out of CFA Google Account Successfully!")
-
-
 def handle_google_login(self):
     """
     Description: Orchestrates the Google OAuth2 login flow. It triggers the 
@@ -123,11 +107,12 @@ def handle_google_login(self):
         self.oauth_data= get_oauth2_api_data(self)
         self.sheets_service, self.sheets_data= get_sheets_api_service(self)
         self.is_logged_in= True # Declare user logged in
+        QMessageBox.information(self, "Success",
+                f"Logged in to CFA Google Account ({self.oauth_data['Email']}) Successfully!")
     except Exception as e:
         print(e)
         self.is_logged_in= False # Declare user logged out
 
-    update_gui(self)
     validate_all_conditions(self) # Check if we can enable buttons
 
 
@@ -148,13 +133,13 @@ def handle_google_logout(self):
     self.oauth_data= None
     self.sheets_service, self.sheets_data= None, None
     self.is_logged_in= False
-    update_gui(self)
+    QMessageBox.information(self, "Success", "Logged out of CFA Google Account Successfully!")
     validate_all_conditions(self) # Check if we can enable buttons
 
 
 def add_google_auth_section(self):
     "Add the 'CFA Google Account Auth' section to the GUI"
-    self.lbl_auth_status= QLabel("CFA Google Account Log Status: 🔴<br>Logged Out")
+    self.lbl_auth_status= QLabel()
     self.layout.addWidget(self.lbl_auth_status)
     self.login_button_layout= QHBoxLayout()
     self.btn_login= QPushButton("Login")

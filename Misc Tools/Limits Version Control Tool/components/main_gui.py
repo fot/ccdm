@@ -1,23 +1,22 @@
 import os
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QHBoxLayout,
-                             QLineEdit, QLabel, QMessageBox, QFrame, QMenuBar,
-                             QMenu, QAction, QToolButton, QApplication)
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QApplication
 from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import Qt
 from components.top_menu_setup import add_top_menu_section
-from components.misc import add_sheet_master_btn, add_exit_btn
+from components.misc import add_exit_btn, validate_all_conditions
 from components.load_file import add_file_select_section
 from components.jira_items import add_jira_section
 from components.google_auth import add_google_auth_section
-from components.merge_to_master import add_merge_to_master_btn
-from components.save_to_svn import add_save_to_svn_btn
+from components.sheets_master import add_sheet_master_btns
+from components.svn_items import add_svn_section
+
 
 class LimitsGatekeeperlGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.is_logged_in= False
-        self.is_jira_valid= False
+        self.is_logged_in=   False
+        self.is_jira_valid=  False
         self.is_file_loaded= False
+        self.is_svn_valid=   False
         self.initUI()
 
     def initUI(self):
@@ -36,8 +35,8 @@ class LimitsGatekeeperlGUI(QWidget):
         add_top_menu_section(self)
         add_google_auth_section(self)
         add_file_select_section(self)
+        add_sheet_master_btns(self)        
         add_jira_section(self)
-        add_merge_to_master_btn(self)
-        add_save_to_svn_btn(self)
-        add_sheet_master_btn(self)
+        add_svn_section(self)
         add_exit_btn(self)
+        validate_all_conditions(self)
