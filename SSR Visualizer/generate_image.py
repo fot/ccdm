@@ -6,16 +6,7 @@ import urllib.request
 import warnings
 import numpy as np
 import plotly.graph_objects as go
-import tkinter as tk
 warnings.filterwarnings("ignore")
-
-
-def get_screen_scaling():
-    root = tk.Tk()
-    pixels_per_inch = root.winfo_fpixels('1i')  # '1i' = 1 inch
-    root.destroy()
-    scaling_factor = pixels_per_inch / 96  # 96 is the baseline DPI
-    return scaling_factor
 
 
 def data_request(self, msid, skip= False):
@@ -189,11 +180,12 @@ def generate_polar_plot(self):
         plot.update_layout(
             polar= {"angularaxis": {"rotation":90, "direction":"clockwise", "visible":False},
                     "radialaxis": {"visible":False, "range":[0, 1.3]}},
-            showlegend= True, margin= {"l":40, "r":40, "t":25, "b":100},
+            showlegend= True, margin= dict(l=100, r=100, t=50, b=100),
             width= 750, height= 750, font= {"size":14, "color":"black"},
             paper_bgcolor= "white",
             legend= {"yanchor":"bottom", "y":-0.15, "xanchor":"left", "x":0.00,
-                    "borderwidth":2, "bordercolor":"black"})
+                    "borderwidth":2, "bordercolor":"black"}
+            )
 
     ssr_max, ssr_min= 134217728, 0
     angles_deg= np.linspace(0, 360, 8, endpoint=False)
@@ -241,3 +233,4 @@ def generate_image(self):
     except IndexError as error:
         print(f""" - (Error) "{error}": Unable to retrieve SSR-{self.selectedssr} power data.""")
         traceback.print_exc()
+        self.plot= None
