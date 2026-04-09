@@ -3,7 +3,7 @@ v1.6 Change Notes:
  - Improves SSR rollover detection
 """
 
-from datetime import datetime,timezone
+from datetime import datetime, timedelta, timezone
 import urllib.request
 from os import system
 import warnings
@@ -29,8 +29,10 @@ class UserVariables:
     "User defined variables"
     def __init__(self):
         system('clear')
-        self.get_start_date()
-        self.get_end_date()
+        self.get_input_dates()
+        # if self.manual:
+        #     self.get_start_date()
+        #     self.get_end_date()
         self.get_dir_path()
         self.get_ssr_prime()
         self.get_major_events()
@@ -40,39 +42,64 @@ class UserVariables:
         self.get_tlm_corruption_events()
         self.get_cdme_misc_comments()
 
-    def get_start_date(self):
-        "User input for start date"
+    def get_input_dates(self):
+        "Get the input dates"
+
+        def get_start_date(self):
+            "User input for start date"
+            while True:
+                user_input= input('(Manual-Input) Enter the START date YYYY:DOY: ')
+                try:
+                    ts= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:00:00:00.000")
+                except ValueError:
+                    print(f' - Input "{user_input}" was not in the correct format, try again.')
+                    continue
+                if ((2001 <= ts.datetime.year <= datetime.now(timezone.utc).year) and
+                    (len(user_input) == 8) and (1 <= int(ts.datetime.strftime("%j")) <= 366)):
+                    break
+                print(f' - Input "{user_input}" was not a valid date, try again.')
+            self.ts= ts
+
+        def get_end_date(self):
+            "User input for end date"
+            while True:
+                user_input= input('(Manual-Input) Enter the END date YYYY:DOY: ')
+                try:
+                    tp= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:23:59:59.999")
+                except ValueError:
+                    print(f' - Input "{user_input}" was not in the correct format, try again.')
+                    continue
+                if ((2001 <= self.ts.datetime.year <= tp.datetime.year) and
+                    (len(user_input) == 8) and (1 <= int(tp.datetime.strftime("%j")) <= 366)):
+                    break
+                print(f' - Input "{user_input}" was invalid, try again.')
+            self.tp= tp
+
+        today= datetime.now()
+        current_week_monday= today - timedelta(days= today.weekday())
+        previous_friday=   current_week_monday - timedelta(days= 9)
+        previous_saturday= current_week_monday - timedelta(days= 3)
+
         while True:
-            user_input= input('Enter the START date YYYY:DOY: ')
-            try:
-                ts= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:00:00:00.000")
-            except ValueError:
-                print(f' - Input "{user_input}" was not in the correct format, try again.')
-                continue
-
-            if ((2001 <= ts.datetime.year <= datetime.now(timezone.utc).year) and
-                (len(user_input) == 8) and (1 <= int(ts.datetime.strftime("%j")) <= 366)):
+            user_input= input(
+                f'(Auto-Input) Do you want to use "{previous_friday.strftime('%Y:%j')} '
+                f'({previous_friday.strftime('%x')})" thru "{previous_saturday.strftime('%Y:%j')}'
+                f' ({previous_saturday.strftime('%x')})" as the input dates? Y/N: ')
+            if user_input.lower() in ["y"]:
+                self.ts= CxoTime(f"{previous_friday.strftime('%Y:%j')}:00:00:00.000")
+                self.tp= CxoTime(f"{previous_saturday.strftime('%Y:%j')}:00:00:00.000")
                 break
-            print(f' - Input "{user_input}" was not a valid date, try again.')
-
-        self.ts= ts
-
-    def get_end_date(self):
-        "User input for end date"
-        while True:
-            user_input= input('Enter the END date YYYY:DOY: ')
-            try:
-                tp= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:23:59:59.999")
-            except ValueError:
-                print(f' - Input "{user_input}" was not in the correct format, try again.')
-                continue
-
-            if ((2001 <= self.ts.datetime.year <= tp.datetime.year) and
-                (len(user_input) == 8) and (1 <= int(tp.datetime.strftime("%j")) <= 366)):
+            elif user_input.lower() in ["n"]:
+                get_start_date(self)
+                get_end_date(self)
                 break
-            print(f' - Input "{user_input}" was invalid, try again.')
+            elif user_input.lower() not in ["y", "n"]:
+                print(f' - "{user_input}" was not a valid input, please try again.')
 
-        self.tp= tp
+        # Print chosen dates:
+        print(f"Set Start Date: {self.ts.datetime.strftime("%Y:%j")}\n"
+              f"Set End Date: {self.tp.datetime.strftime("%Y:%j")}")
+
 
     def get_dir_path(self):
         "User input for set directory"
