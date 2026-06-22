@@ -1,0 +1,10 @@
+{
+  "0": { "internal_delay": 0.0000000, "sync_delay": 0.0000000 },
+  "1": { "internal_delay": 0.2579280, "sync_delay": 0.0008621 },
+  "2": { "internal_delay": 0.2572351, "sync_delay": 0.0004310 },
+  "3": { "internal_delay": 0.2568886, "sync_delay": 0.0002155 },
+  "4": { "internal_delay": 0.2567154, "sync_delay": 0.0001078 },
+  "5": { "internal_delay": 0.2566288, "sync_delay": 0.0000539 },
+  "6": { "internal_delay": 0.2565855, "sync_delay": 0.0000269 },
+  "7": { "internal_delay": 0.0000000, "sync_delay": 0.0000000 }
+}

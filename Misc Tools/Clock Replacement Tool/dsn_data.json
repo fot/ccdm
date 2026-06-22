@@ -1,0 +1,110 @@
+{
+    "14": {
+        "distance": 6371.993286,
+        "longitude": 243.110464,
+        "latitude": 35.244353,
+        "delay": 0.0
+    },
+    "15": {
+        "distance": 6371.966511,
+        "longitude": 243.1128049,
+        "latitude": 35.2403129,
+        "delay": -6.2e-06
+    },
+    "16": {
+        "distance": 6371.965529,
+        "longitude": 243.126352,
+        "latitude": 35.160178,
+        "delay": 6.6e-05
+    },
+    "23": {
+        "distance": 6371.974079,
+        "longitude": 243.122489,
+        "latitude": 35.156203,
+        "delay": -6.2e-06
+    },
+    "24": {
+        "distance": 6371.977,
+        "longitude": 243.12787,
+        "latitude": 35.15820,
+        "delay": -6.2e-06
+    },
+    "26": {
+        "distance": 6371.992264,
+        "longitude": 243.1269835,
+        "latitude": 35.1543409,
+        "delay": -6.2e-06
+    },
+    "27": {
+        "distance": 6372.11024,
+        "longitude": 243.2233496,
+        "latitude": 35.0571452,
+        "delay": -6.2e-06
+    },
+    "34": {
+        "distance": 6371.693538,
+        "longitude": 148.9819644,
+        "latitude": -35.2169824,
+        "delay": -3.5e-06
+    },
+    "36": {
+        "distance": 6371.688208,
+        "longitude": 148.9785442,
+        "latitude": -35.2136127,
+        "delay": -3.5e-06
+    },
+    "43": {
+        "distance": 6371.689033,
+        "longitude": 148.981265,
+        "latitude": -35.220923,
+        "delay": 0.0
+    },
+    "45": {
+        "distance": 6371.675873,
+        "longitude": 148.9776856,
+        "latitude": -35.2169608,
+        "delay": -6.2e-06
+    },
+    "46": {
+        "distance": 6371.676067,
+        "longitude": 148.983079,
+        "latitude": -35.223504,
+        "delay": 0.0
+    },
+    "53": {
+        "distance": 6370.030706,
+        "longitude": 355.7465956,
+        "latitude": 40.2372333,
+        "delay": -6.2e-06
+    },
+    "54": {
+        "distance": 6370.02549,
+        "longitude": 355.7459032,
+        "latitude": 40.2357726,
+        "delay": -6.2e-06
+    },
+    "56": {
+        "distance": 6370.024058,
+        "longitude": 355.7479393,
+        "latitude": 40.2361152,
+        "delay": -6.2e-06
+    },
+    "63": {
+        "distance": 6370.051221,
+        "longitude": 355.751989,
+        "latitude": 40.241454,
+        "delay": 0.0
+    },
+    "65": {
+        "distance": 6370.021709,
+        "longitude": 355.7493011,
+        "latitude": 40.2373355,
+        "delay": -6.2e-06
+    },
+    "66": {
+        "distance": 6370.036713,
+        "longitude": 355.74858,
+        "latitude": 40.24012,
+        "delay": 0.0
+    }
+}
