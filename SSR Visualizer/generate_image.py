@@ -57,6 +57,7 @@ def get_pointers(self):
     """
     print("  - Getting Playback/Record Pointers...")
     pb_pointers = []
+    ssr_max_val = 134217728
 
     # --- Find Current and Previous Playback Pointers ---
     pb_data = data_request(self, f"COS{self.selectedssr.upper()}PBPT")
@@ -72,13 +73,36 @@ def get_pointers(self):
         except IndexError:
             pb_pointers.append(None)
 
-    # --- Record the current Record Pointer Value and Timestamp ---
+    # Extract data into values and times lists
     rc_data = data_request(self, f"COS{self.selectedssr.upper()}RCPT")
-    rc_pointer = int(rc_data['data-fmt-1']['values'][-1])
-    rc_time_str = str(rc_data['data-fmt-1']['times'][-1])
-    
-    # Slice the first 13 chars to drop fractional seconds, format: YYYYJJJHHMMSS
+    rc_values = rc_data['data-fmt-1']['values']
+    rc_times = rc_data['data-fmt-1']['times']
+
+    # Newest data points
+    rc_pointer = int(rc_values[-1])
+    rc_time_str = str(rc_times[-1])
     rc_timestamp = datetime.strptime(rc_time_str[:13], "%Y%j%H%M%S").replace(tzinfo=timezone.utc)
+
+    # Oldest point in the queried dataset
+    old_rc_time_str = str(rc_times[0])
+    old_rc_timestamp = datetime.strptime(old_rc_time_str[:13], "%Y%j%H%M%S").replace(tzinfo=timezone.utc)
+
+    # Calculate elapsed time in hours
+    delta_hours = (rc_timestamp - old_rc_timestamp).total_seconds() / 3600.0
+
+    # Calculate total pointers moved (step-by-step to catch wrap-arounds)
+    total_pointers_moved = 0
+    for i in range(1, len(rc_values)):
+        prev_val = int(rc_values[i-1])
+        curr_val = int(rc_values[i])
+        total_pointers_moved += (curr_val - prev_val) % ssr_max_val
+
+    # Calculate dynamic rate (Pointers per Hour)
+    if delta_hours > 0 and total_pointers_moved > 0:
+        self.rc_rate = total_pointers_moved / delta_hours
+    else:
+        # Safe fallback to nominal 18.6 hr fill rate if data is missing/corrupted
+        self.rc_rate = ssr_max_val / 18.6
 
     # Apply to instance
     self.pb_pointers = pb_pointers
@@ -135,12 +159,13 @@ def generate_polar_plot(self):
     def build_and_add_time_labels(plot):
         """Define labels based off SSR time duration and the record pointer's timestamp."""
         labels = []
-        total_ssr_hours = 18.6
 
         for i in range(8):
             tick_pointer = i * ((ssr_max - ssr_min) / 8)
+
+            # The modulo perfectly calculates wrap-around distance
             pointers_to_go = (tick_pointer - self.rc_pointer) % ssr_max
-            hours_to_go = (pointers_to_go / ssr_max) * total_ssr_hours
+            hours_to_go = pointers_to_go / self.rc_rate
 
             # Add future duration to the timestamp of the last queried data point
             future_time = self.rc_timestamp + timedelta(hours=hours_to_go)
@@ -251,7 +276,7 @@ def generate_polar_plot(self):
 
     # Determine display mode with a safe fallback to 'pointers'
     current_mode = getattr(self, 'display_mode', getattr(self, 'display_toggle', 'pointers'))
-    
+
     if current_mode == "time":
         build_and_add_time_labels(plot)
     else:
@@ -264,7 +289,6 @@ def generate_polar_plot(self):
     add_datetime_annotations(plot)
     add_playback_active_annotation(plot)
     format_plot(plot)
-    
     print(f"  - Plot generated for SSR-{self.selectedssr}...\n")
     self.plot = plot
 
@@ -272,19 +296,18 @@ def generate_polar_plot(self):
 def generate_image(self):
     """
     Executes the main orchestration logic to generate a polar plot image.
-    
+
     Workflow:
       1. Determines the time window for data retrieval.
       2. Checks the power status of the selected SSR.
       3. If ON, retrieves pointer data and constructs the polar plot.
       4. Handles errors if SSR data is unavailable or parsing fails.
-      
+
     Returns:
         None: The generated plot object is attached directly to `self.plot`.
     """
     self.start_date = datetime.now(timezone.utc) - timedelta(hours=self.selectedquery)
     self.end_date = datetime.now(timezone.utc) - timedelta(seconds=5)
-    
     print(f"Checking if SSR-{self.selectedssr} is ON...")
     ssr_power = data_request(self, f"COSSR{self.selectedssr}X")
 
