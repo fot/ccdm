@@ -5,7 +5,6 @@ Handles user inputs, continuous updating, and dynamic image rendering.
 
 import sys
 from PyQt6 import QtWidgets, QtGui, QtCore
-# from PySide6 import QtWidgets, QtGui, QtCore
 from generate_image import generate_image
 
 
