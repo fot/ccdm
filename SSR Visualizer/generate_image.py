@@ -125,29 +125,26 @@ def get_pointers(self):
     else:
         pb_pointers.append(None)
 
-    # Extract data into values and times lists
-    rc_data = data_request(self, f"COS{self.selectedssr.upper()}RCPT")
-    rc_values = rc_data['data-fmt-1']['values']
-    rc_times = rc_data['data-fmt-1']['times']
+    # --- Find Record Pointers ---
+    rc_df = data_request(self, [f"COS{self.selectedssr.upper()}RCPT"])
 
-    # Newest data points
-    rc_pointer = int(rc_values[-1])
-    rc_time_str = str(rc_times[-1])
-    rc_timestamp = datetime.strptime(rc_time_str[:13], "%Y%j%H%M%S").replace(tzinfo=timezone.utc)
+    if rc_df.empty:
+        raise ValueError(f"No Record Pointer data returned for SSR-{self.selectedssr}.")
+
+    rc_series = rc_df['values'].astype(int)
+
+    # Newest data points (Apply UTC timezone directly to the Pandas datetime object)
+    rc_pointer = rc_series.iloc[-1]
+    rc_timestamp = rc_df['times'].iloc[-1].replace(tzinfo=timezone.utc)
 
     # Oldest point in the queried dataset
-    old_rc_time_str = str(rc_times[0])
-    old_rc_timestamp = datetime.strptime(old_rc_time_str[:13], "%Y%j%H%M%S").replace(tzinfo=timezone.utc)
+    old_rc_timestamp = rc_df['times'].iloc[0].replace(tzinfo=timezone.utc)
 
     # Calculate elapsed time in hours
     delta_hours = (rc_timestamp - old_rc_timestamp).total_seconds() / 3600.0
 
-    # Calculate total pointers moved (step-by-step to catch wrap-arounds)
-    total_pointers_moved = 0
-    for i in range(1, len(rc_values)):
-        prev_val = int(rc_values[i-1])
-        curr_val = int(rc_values[i])
-        total_pointers_moved += (curr_val - prev_val) % ssr_max_val
+    # Vectorized pointer movement calculation (accounts for modulo wrap-around)
+    total_pointers_moved = rc_series.diff().dropna().mod(ssr_max_val).sum()
 
     # Calculate dynamic rate (Pointers per Hour)
     if delta_hours > 0 and total_pointers_moved > 0:
@@ -192,21 +189,16 @@ def generate_polar_plot(self):
     def build_and_add_pointer_labels(plot):
         """Define labels based off SSR min/max raw pointer values."""
         labels = [f"{int(ssr_min + i * ((ssr_max - ssr_min) / 8)):,}" for i in range(8)]
-        labels[0] = f"{labels[0]}<br>{labels[0]}" # Top dead center wrap-around label
+        labels[0] = f"{int(ssr_max):,}<br>{labels[0]}" # Top dead center wrap-around label
         _draw_grid_and_labels(plot, labels)
 
     def build_and_add_time_labels(plot):
         """Define labels based off SSR time duration and the record pointer's timestamp."""
         labels = []
-
         for i in range(8):
             tick_pointer = i * ((ssr_max - ssr_min) / 8)
-
-            # The modulo perfectly calculates wrap-around distance
             pointers_to_go = (tick_pointer - self.rc_pointer) % ssr_max
             hours_to_go = pointers_to_go / self.rc_rate
-
-            # Add future duration to the timestamp of the last queried data point
             future_time = self.rc_timestamp + timedelta(hours=hours_to_go)
             labels.append(future_time.strftime('%Y:%j<br>%H:%M:%S'))
         _draw_grid_and_labels(plot, labels)
@@ -311,7 +303,7 @@ def generate_polar_plot(self):
     add_datetime_annotations(plot)
     add_playback_active_annotation(plot)
     format_plot(plot)
-    print(f"  - Plot generated for SSR-{self.selectedssr}...\n")
+    print(f"  - Plot generated for SSR-{self.selectedssr}...")
     self.plot = plot
 
 
@@ -323,7 +315,7 @@ def generate_image(self):
       1. Determines the time window for data retrieval.
       2. Checks the power status of the selected SSR.
       3. If ON, retrieves pointer data and constructs the polar plot.
-      4. Handles errors if SSR data is unavailable or parsing fails.
+      4. Handles errors gracefully if SSR data is unavailable or parsing fails.
 
     Returns:
         None: The generated plot object is attached directly to `self.plot`.
