@@ -9,10 +9,10 @@ from generate_image import generate_image
 
 if platform.system() == "Linux":
     from PySide6 import QtWidgets, QtGui, QtCore
-    # from PySide6.QtWebEngineWidgets import QWebEngineView
 else:
     from PyQt6 import QtWidgets, QtGui, QtCore
-    # from PyQt6.QtWebEngineWidgets import QWebEngineView
+else:
+    from PyQt6 import QtWidgets, QtGui, QtCore
 
 
 class QTextEditLogger(QtCore.QObject):
@@ -24,10 +24,15 @@ class QTextEditLogger(QtCore.QObject):
         self.text_edit = text_edit
 
     def write(self, msg):
-        """Write a message to the QTextEdit widget and scroll to the bottom."""
+        """Write a message to the QTextEdit widget and force a GUI update."""
         if msg.strip():
             self.text_edit.append(msg)
             self.text_edit.moveCursor(QtGui.QTextCursor.MoveOperation.End)
+            QtWidgets.QApplication.processEvents()
+
+    def flush(self):
+        """Dummy flush method required by some libraries when replacing sys.stdout"""
+        pass
 
 
 class SSRPointerWindow(QtWidgets.QWidget):
@@ -128,10 +133,9 @@ class SSRPointerWindow(QtWidgets.QWidget):
         if checked:
             self.timer.start(30000) # 30 seconds
             self.run_ssr()          # Trigger an immediate run when checked
-            print("- Continuous mode ENABLED.\n")
         else:
             self.timer.stop()
-            print("- Continuous mode DISABLED.\n")
+            print("  - Continuous mode DISABLED.\n")
 
     def toggle_display(self, checked):
         """Handle the display checkbox toggle to swap plot display between pointers and times"""
