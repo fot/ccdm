@@ -11,6 +11,8 @@ if platform.system() == "Linux":
     from PySide6 import QtWidgets, QtGui, QtCore
 else:
     from PyQt6 import QtWidgets, QtGui, QtCore
+else:
+    from PyQt6 import QtWidgets, QtGui, QtCore
 
 
 class QTextEditLogger(QtCore.QObject):
