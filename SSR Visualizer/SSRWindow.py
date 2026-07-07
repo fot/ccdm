@@ -4,8 +4,15 @@ Handles user inputs, continuous updating, and dynamic image rendering.
 """
 
 import sys
-from PyQt6 import QtWidgets, QtGui, QtCore
+import platform
 from generate_image import generate_image
+
+if platform.system() == "Linux":
+    from PySide6 import QtWidgets, QtGui, QtCore
+    # from PySide6.QtWebEngineWidgets import QWebEngineView
+else:
+    from PyQt6 import QtWidgets, QtGui, QtCore
+    # from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 
 class QTextEditLogger(QtCore.QObject):
@@ -48,13 +55,21 @@ class SSRPointerWindow(QtWidgets.QWidget):
         screen_width = screen.geometry().width()
         screen_height = screen.geometry().height()
 
+        self.setStyleSheet("""
+            QWidget { font-size: 11pt; }
+            QPushButton { font-size: 12pt;
+                         f ont-weight: bold; }
+        """)
+
         self.resize(QtCore.QSize(
             int((screen_width / scaling_factor) / 3.8),
             int((screen_height / scaling_factor) / 1.5)))
 
         # --- Layout Initialization ---
         self.layout= QtWidgets.QGridLayout()
-        self.layout.setRowStretch(2, 1)
+        # self.layout.setRowStretch(2, 1)
+        self.layout.setRowStretch(3,3)
+        self.layout.setRowStretch(4,1)
 
         # --- State Variables ---
         self.selectedssr= None
@@ -80,14 +95,6 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self._build_quit_button()             # row 5, column 3
         self._apply_gui_formatting()
 
-    # ---------------------------------------------------------
-    # Helper Methods
-    # ---------------------------------------------------------
-    def _scale_font(self, widget):
-        """Helper method to cleanly double the font size of a given widget."""
-        font= widget.font()
-        font.setPointSize(2 * font.pointSize())
-        widget.setFont(font)
 
     # ---------------------------------------------------------
     # Event Handlers
@@ -143,14 +150,12 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.ssrlabel.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignCenter)
         self.ssrlabel.setMinimumHeight(30)
-        self._scale_font(self.ssrlabel)
         self.layout.addWidget(self.ssrlabel, 1, 0)
         self.ssrcombobox= QtWidgets.QComboBox()
         self.ssrcombobox.addItems(["A", "B"])
         self.ssrcombobox.setEditable(True)
         self.ssrcombobox.setToolTip("Select which SSR to visualize")
         self.ssrcombobox.setMinimumHeight(30)
-        self._scale_font(self.ssrcombobox)
         line_edit= self.ssrcombobox.lineEdit()
         line_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         line_edit.setReadOnly(True)
@@ -164,14 +169,12 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.channellabel.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignCenter)
         self.channellabel.setMinimumHeight(30)
-        self._scale_font(self.channellabel)
         self.layout.addWidget(self.channellabel, 1, 2)
         self.channelcombobox= QtWidgets.QComboBox()
         self.channelcombobox.addItems(["Flight", "ASVT"])
         self.channelcombobox.setEditable(True)
         self.channelcombobox.setToolTip("Select which data channel to query data from.")
         self.channelcombobox.setMinimumHeight(30)
-        self._scale_font(self.channelcombobox)
         line_edit= self.channelcombobox.lineEdit()
         line_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         line_edit.setReadOnly(True)
@@ -184,20 +187,18 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.continuous_checkbox= QtWidgets.QCheckBox("Continuous")
         self.continuous_checkbox.setToolTip("Automatically update the plot every 30 seconds.")
         self.continuous_checkbox.setMinimumHeight(30)
-        self._scale_font(self.continuous_checkbox)
         self.layout.addWidget(
-            self.continuous_checkbox, 2, 0, 1, 2,
-            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
+            self.continuous_checkbox, 2, 0,
+            alignment = QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
         self.continuous_checkbox.toggled.connect(self.toggle_continuous)
-    
+
     def _build_toggle_display_checkbox(self):
         """Builds the display toggle checkbox."""
         self.display_checkbox= QtWidgets.QCheckBox("Pointer/Time")
         self.display_checkbox.setToolTip("Toggle the display between times and pointer values.")
         self.display_checkbox.setMinimumHeight(30)
-        self._scale_font(self.display_checkbox)
         self.layout.addWidget(
-            self.display_checkbox, 2, 1, 1, 2,
+            self.display_checkbox, 2, 1,
             alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
         self.display_checkbox.toggled.connect(self.toggle_display)
 
@@ -206,14 +207,12 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.querylabel= QtWidgets.QLabel("Query Time:")
         self.querylabel.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignCenter)
         self.querylabel.setMinimumHeight(30)
-        self._scale_font(self.querylabel)
         self.layout.addWidget(self.querylabel, 2, 2)
         self.querycombobox= QtWidgets.QComboBox()
         self.querycombobox.addItems(["18.6 hr", "24 hr", "48 hr"])
         self.querycombobox.setEditable(True)
         self.querycombobox.setToolTip("Select how far back in time the SSR Visualizer can query data.")
         self.querycombobox.setMinimumHeight(30)
-        self._scale_font(self.querycombobox)
         line_edit= self.querycombobox.lineEdit()
         line_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         line_edit.setReadOnly(True)
@@ -222,31 +221,31 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.querycombobox.currentTextChanged.connect(self.selected_query)
 
     def _build_image_output(self):
-        """Initializes and renders the polar plot as a static image in the GUI."""
+        """Renders the Plotly figure as a completely static PNG in a QLabel."""
+
         if not hasattr(self, 'image_label'):
-            self.image_label= QtWidgets.QLabel()
+            self.image_label = QtWidgets.QLabel("Waiting for data...")
+            self.image_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+
+            # Allow the label to expand
             self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,
                                            QtWidgets.QSizePolicy.Policy.Expanding)
-            self.image_label.setMinimumHeight(int(self.height() * 0.70))
-            self.image_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            self.image_label.setStyleSheet("background-color: white;")
             self.layout.addWidget(self.image_label, 3, 0, 1, 4)
 
         if self.plot is not None:
             try:
-                img_bytes= self.plot.to_image(format="png", width=750, height=750)
-                pixmap= QtGui.QPixmap()
+                img_bytes = self.plot.to_image(format="png", width=750, height=750)
+                pixmap = QtGui.QPixmap()
                 pixmap.loadFromData(img_bytes)
-                scaled_pixmap= pixmap.scaled(
-                    self.image_label.size(),
-                    QtCore.Qt.AspectRatioMode.KeepAspectRatio,
-                    QtCore.Qt.TransformationMode.SmoothTransformation)
+                scaled_pixmap = pixmap.scaled(
+                    self.image_label.size(), 
+                    QtCore.Qt.AspectRatioMode.KeepAspectRatio, 
+                    QtCore.Qt.TransformationMode.SmoothTransformation
+                )
                 self.image_label.setPixmap(scaled_pixmap)
             except Exception as e:
                 print(f"Error generating static image: {e}")
-                self.image_label.setText("Error generating image. Is 'kaleido' installed?")
-        else:
-            self.image_label.setStyleSheet("background-color: #f0f0f0;")
+                self.image_label.setText(f"Error generating image:\n{e}")
 
     def _build_console(self):
         """Builds the console output text area and redirects stdout/stderr."""
@@ -254,7 +253,9 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.consoleoutput.setReadOnly(True)
         self.consoleoutput.setLineWrapMode(QtWidgets.QTextEdit.LineWrapMode.NoWrap)
         self.consoleoutput.setFont(QtGui.QFont("Courier", 10))
-        self.consoleoutput.setMinimumHeight(int(self.height() * 0.08))
+        self.consoleoutput.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding)
         self.layout.addWidget(self.consoleoutput, 4, 0, 1, 4)
         sys.stdout= QTextEditLogger(self.consoleoutput)
         sys.stderr= QTextEditLogger(self.consoleoutput)
@@ -269,7 +270,6 @@ class SSRPointerWindow(QtWidgets.QWidget):
         runfont= self.runssrbutton.font()
         runfont.setBold(True)
         self.runssrbutton.setFont(runfont)
-        self._scale_font(self.runssrbutton)
         self.layout.addWidget(self.runssrbutton, 5, 0, 1, 3)
         self.runssrbutton.clicked.connect(self.run_ssr)
 
@@ -282,7 +282,6 @@ class SSRPointerWindow(QtWidgets.QWidget):
         quitfont= self.quitbutton.font()
         quitfont.setBold(True)
         self.quitbutton.setFont(quitfont)
-        self._scale_font(self.quitbutton)
         self.layout.addWidget(self.quitbutton, 5, 3)
         self.quitbutton.clicked.connect(self.quit_event)
 
