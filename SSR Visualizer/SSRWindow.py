@@ -4,14 +4,8 @@ Handles user inputs, continuous updating, and dynamic image rendering.
 """
 
 import sys
-import os
-import platform
 from generate_image import generate_image
-
-if platform.system() == "Linux":
-    from PySide6 import QtWidgets, QtGui, QtCore
-else:
-    from PyQt6 import QtWidgets, QtGui, QtCore
+from PyQt5 import QtWidgets, QtGui, QtCore
 
 
 class QTextEditLogger(QtCore.QObject):
@@ -26,7 +20,7 @@ class QTextEditLogger(QtCore.QObject):
         """Write a message to the QTextEdit widget and force a GUI update."""
         if msg.strip():
             self.text_edit.append(msg)
-            self.text_edit.moveCursor(QtGui.QTextCursor.MoveOperation.End)
+            self.text_edit.moveCursor(QtGui.QTextCursor.End)
             QtWidgets.QApplication.processEvents()
 
     def flush(self):
@@ -141,8 +135,7 @@ class SSRPointerWindow(QtWidgets.QWidget):
     # ---------------------------------------------------------
     def _build_ssr_selection(self):
         self.ssrlabel = QtWidgets.QLabel("Select SSR:")
-        self.ssrlabel.setAlignment(
-            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.ssrlabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
         self.ssrlabel.setMinimumHeight(30)
         self.layout.addWidget(self.ssrlabel, 1, 0)
         self.ssrcombobox = QtWidgets.QComboBox()
@@ -150,16 +143,14 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.ssrcombobox.setEditable(True)
         self.ssrcombobox.setMinimumHeight(30)
         line_edit = self.ssrcombobox.lineEdit()
-        line_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        line_edit.setReadOnly(True)
+        self.line_edit_align(line_edit)
         self.layout.addWidget(self.ssrcombobox, 1, 1)
         self.selectedssr = self.ssrcombobox.currentText()
         self.ssrcombobox.currentTextChanged.connect(self.selected_ssr)
 
     def _build_channel_selection(self):
         self.channellabel = QtWidgets.QLabel("Channel:")
-        self.channellabel.setAlignment(
-            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.channellabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
         self.channellabel.setMinimumHeight(30)
         self.layout.addWidget(self.channellabel, 1, 2)
         self.channelcombobox = QtWidgets.QComboBox()
@@ -167,8 +158,7 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.channelcombobox.setEditable(True)
         self.channelcombobox.setMinimumHeight(30)
         line_edit = self.channelcombobox.lineEdit()
-        line_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        line_edit.setReadOnly(True)
+        self.line_edit_align(line_edit)
         self.layout.addWidget(self.channelcombobox, 1, 3)
         self.selectedchannel = self.channelcombobox.currentText()
         self.channelcombobox.currentTextChanged.connect(self.selected_channel)
@@ -177,20 +167,19 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.continuous_checkbox = QtWidgets.QCheckBox("Continuous")
         self.continuous_checkbox.setMinimumHeight(30)
         self.layout.addWidget(self.continuous_checkbox, 2, 0,
-            alignment = QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
+            alignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
         self.continuous_checkbox.toggled.connect(self.toggle_continuous)
 
     def _build_toggle_display_checkbox(self):
         self.display_checkbox = QtWidgets.QCheckBox("Pointer/Time")
         self.display_checkbox.setMinimumHeight(30)
         self.layout.addWidget(self.display_checkbox, 2, 1,
-            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
+            alignment=QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
         self.display_checkbox.toggled.connect(self.toggle_display)
 
     def _build_query_rate(self):
         self.querylabel = QtWidgets.QLabel("Query Time:")
-        self.querylabel.setAlignment(
-            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.querylabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
         self.querylabel.setMinimumHeight(30)
         self.layout.addWidget(self.querylabel, 2, 2)
         self.querycombobox = QtWidgets.QComboBox()
@@ -198,25 +187,27 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.querycombobox.setEditable(True)
         self.querycombobox.setMinimumHeight(30)
         line_edit = self.querycombobox.lineEdit()
-        line_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        line_edit.setReadOnly(True)
+        self.line_edit_align(line_edit)
         self.layout.addWidget(self.querycombobox, 2, 3)
         self.selectedquery = float(self.querycombobox.currentText()[:-3])
         self.querycombobox.currentTextChanged.connect(self.selected_query)
 
+    def line_edit_align(self, line_edit):
+        """Helper to align line edits and make them read-only."""
+        line_edit.setAlignment(QtCore.Qt.AlignCenter)
+        line_edit.setReadOnly(True)
+
     def _build_image_output(self):
         """
         Renders the Matplotlib raw RGBA pixel array into the GUI QLabel.
-        This is called by both the initial run and the resizeEvent() to 
-        ensure the image scales dynamically with the window.
         """
         # Initialize the QLabel if it doesn't exist yet
         if not hasattr(self, 'image_label'):
             self.image_label = QtWidgets.QLabel("Waiting for data...")
-            self.image_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            self.image_label.setMinimumSize(100,100)
-            self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,
-                                           QtWidgets.QSizePolicy.Policy.Expanding)
+            self.image_label.setAlignment(QtCore.Qt.AlignCenter)
+            self.image_label.setMinimumSize(100, 100)
+            self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                                           QtWidgets.QSizePolicy.Expanding)
             self.layout.addWidget(self.image_label, 3, 0, 1, 4)
 
         # Check if we have valid pixel data from Matplotlib
@@ -226,23 +217,23 @@ class SSRPointerWindow(QtWidgets.QWidget):
                 image_data = self.plot_rgba.copy()
                 height, width, channels = image_data.shape
                 bytes_per_line = channels * width
-
-                # Create QImage from the copied buffer
                 qimage = QtGui.QImage(
                     image_data.data, 
                     width, 
                     height, 
                     bytes_per_line, 
-                    QtGui.QImage.Format.Format_RGBA8888
+                    QtGui.QImage.Format_RGBA8888
                 )
 
                 # Force a deep copy into the QImage so it is safe to discard the numpy array
-                qimage = qimage.copy() 
+                qimage = qimage.copy()
                 pixmap = QtGui.QPixmap.fromImage(qimage)
+
+                # PyQt5 Enum Fix: KeepAspectRatio and SmoothTransformation
                 scaled_pixmap = pixmap.scaled(
                     self.image_label.size(), 
-                    QtCore.Qt.AspectRatioMode.KeepAspectRatio, 
-                    QtCore.Qt.TransformationMode.SmoothTransformation
+                    QtCore.Qt.KeepAspectRatio, 
+                    QtCore.Qt.SmoothTransformation
                 )
                 self.image_label.setPixmap(scaled_pixmap)
 
@@ -256,11 +247,11 @@ class SSRPointerWindow(QtWidgets.QWidget):
     def _build_console(self):
         self.consoleoutput = QtWidgets.QTextEdit()
         self.consoleoutput.setReadOnly(True)
-        self.consoleoutput.setLineWrapMode(QtWidgets.QTextEdit.LineWrapMode.NoWrap)
+        self.consoleoutput.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
         self.consoleoutput.setFont(QtGui.QFont("Courier", 10))
         self.consoleoutput.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding,
-            QtWidgets.QSizePolicy.Policy.Expanding,)
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding)
         self.layout.addWidget(self.consoleoutput, 4, 0, 1, 4)
         sys.stdout = QTextEditLogger(self.consoleoutput)
         sys.stderr = QTextEditLogger(self.consoleoutput)
@@ -288,8 +279,8 @@ class SSRPointerWindow(QtWidgets.QWidget):
     def _apply_gui_formatting(self):
         self.textdisplay = QtWidgets.QTextEdit()
         self.textdisplay.setReadOnly(True)
-        self.textdisplay.setLineWrapMode(QtWidgets.QTextEdit.LineWrapMode.NoWrap)
-        self.textdisplay.moveCursor(QtGui.QTextCursor.MoveOperation.End)
-        font = QtGui.QFont("Courier", 10, QtGui.QFont.Weight.Bold)
+        self.textdisplay.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+        self.textdisplay.moveCursor(QtGui.QTextCursor.End)
+        font = QtGui.QFont("Courier", 10, QtGui.QFont.Bold)
         self.textdisplay.setFont(font)
         self.setLayout(self.layout)

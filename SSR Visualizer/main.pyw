@@ -1,19 +1,15 @@
 "Main Execution for App"
 
 import sys
-import platform
 from pathlib import Path
 from SSRWindow import SSRPointerWindow
 
 
-if platform.system() == "Linux":
-    from PySide6.QtWidgets import QApplication
-    from PySide6.QtGui import QIcon
-    from PySide6.QtCore import Qt
-    QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings)
-else:
-    from PyQt6.QtWidgets import QApplication
-    from PyQt6.QtGui import QIcon
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import Qt
+QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings)
+
 
 def main():
     app= QApplication(sys.argv + ['--log-level=3'])
