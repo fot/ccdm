@@ -6,7 +6,7 @@ import plotly.graph_objs as go
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QHBoxLayout, QFileDialog, QSizePolicy,
-    QTextEdit, QProgressBar
+    QTextEdit, QProgressBar, QLineEdit
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtCore import Qt, QUrl, pyqtSignal, QObject, QThread
@@ -96,6 +96,21 @@ class FileLoaderApp(QWidget):
         self.btn_select = QPushButton("Select File")
         self.btn_select.clicked.connect(self.load_file)
 
+        # Data Channels Input Box
+        self.channel_label = QLabel("Data Channels:", self)
+        self.channel_input = QLineEdit(self)
+        self.channel_input.setPlaceholderText("e.g. item1, item2, item3 or item1,item2,item3")
+        self.channel_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #2d2d2d;
+                color: white;
+                border: 1px solid #444;
+                border-radius: 4px;
+                padding: 6px;
+                font-family: Consolas, monospace;
+            }
+        """)
+
         # Spinner (GIF)
         self.spinner = QLabel(self)
         self.spinner_movie = QMovie("loading_icon.gif")
@@ -178,10 +193,14 @@ class FileLoaderApp(QWidget):
         # Layouts
         main = QVBoxLayout()
         top = QHBoxLayout()
+        channel_layout = QHBoxLayout()
         buttons = QHBoxLayout()
 
         top.addWidget(self.label)
         top.addWidget(self.btn_select)
+
+        channel_layout.addWidget(self.channel_label)
+        channel_layout.addWidget(self.channel_input, stretch=1)
 
         buttons.addStretch()
         buttons.addWidget(self.btn_run)
@@ -189,6 +208,7 @@ class FileLoaderApp(QWidget):
         buttons.addWidget(self.btn_exit)
 
         main.addLayout(top)
+        main.addLayout(channel_layout)
         main.addWidget(self.spinner)
         main.addWidget(self.plot_view, stretch=1)
         main.addWidget(self.progress)
@@ -198,10 +218,25 @@ class FileLoaderApp(QWidget):
         self.setLayout(main)
 
     # ---------------------------------------------------
+    # Helper to parse channels with or without spaces
+    # ---------------------------------------------------
+    def get_selected_channels(self):
+        text = self.channel_input.text().strip()
+        if not text:
+            return []
+        # Splits by comma and strips leading/trailing whitespaces from each item, ignoring empty splits
+        return [item.strip() for item in text.split(",") if item.strip()]
+
+    # ---------------------------------------------------
     # File selection
     # ---------------------------------------------------
     def load_file(self):
-        file, _ = QFileDialog.getOpenFileName(self, "Select ASVT Data File")
+        file, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Binary Data File",
+            "",
+            "Binary Files (*.ztlm);;All Files (*)"
+        )
         if file:
             self.selected_file = file
             self.label.setText(f"Loaded: {file}")
@@ -215,7 +250,8 @@ class FileLoaderApp(QWidget):
             self.log("[ERROR] No file selected.")
             return
 
-        self.log("[INFO] Starting plot generation...")
+        channels = self.get_selected_channels()
+        self.log(f"[INFO] Target channels requested: {channels if channels else 'All/Default'}")
 
         self.spinner.setVisible(True)
         self.spinner_movie.start()

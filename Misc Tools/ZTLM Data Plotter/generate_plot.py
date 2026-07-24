@@ -1,50 +1,52 @@
-"Module to build plotly object from ASVT data txt file"
+import plotly.express as px
+from binary_convert import decode_telemetry
 
-from datetime import datetime
-from itertools import islice
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+def build_plot(gui_instance):
+    """Build a plotly figure from the binary file using pandas."""
+    
+    # 1. Update the GUI console to show the parsing has started
+    gui_instance.log(f"[INFO] Parsing binary data from: {gui_instance.selected_file}")
+    
+    # 2. Decode the binary file into a DataFrame
+    df = decode_telemetry(gui_instance.selected_file)
 
-class DataPoint:
-    "A blank dataclass used to store data point attributes"
+    # 3. Requested channels from GUI box
+    requested_channels = gui_instance.get_selected_channels()
 
-def build_plot(self):
-    "build a ploty figure from the ASVT data txt file"
-    data_list= []
+    # 4. Filter columns if specific channels are requested
+    if requested_channels:
+        # Find which requested channels actually exist in the DataFrame columns
+        valid_channels = [ch for ch in requested_channels if ch in df.columns]
+        missing_channels = [ch for ch in requested_channels if ch not in df.columns]
 
-    with open(self.selected_file, "r") as f:
-        # Read header
-        msids= f.readline().split()[1:]
+        if missing_channels:
+            gui_instance.log(f"[WARNING] Channels not found in data: {', '.join(missing_channels)}")
 
-        while True:
-            lines = list(islice(f, 10000))
-            if not lines:
-                break
+        if valid_channels:
+            gui_instance.log(f"[INFO] Plotting filtered channels: {', '.join(valid_channels)}")
+            # Keep index (time/frame) along with the selected valid columns
+            plot_df = df[valid_channels]
+        else:
+            gui_instance.log("[WARNING] None of the requested channels matched. Falling back to all columns.")
+            plot_df = df
+    else:
+        gui_instance.log("[INFO] No specific channels entered. Plotting all available channels.")
+        plot_df = df
 
-            for line in lines:
-                data_line= line.split()
-                data_point= DataPoint()
-                data_point.datetime= datetime.strptime(data_line[0], "%Y%j.%H%M%S%f")
+    # 3. Create a single interactive plot with all channels
+    gui_instance.log("[INFO] Building Plotly traces...")
+    fig = px.line(
+        plot_df, x = df.index, y = df.columns,
+        title="Telemetry Channels",
+        labels={"value": "Amplitude", "index": "Time", "variable": "Channels"}
+    )
 
-                for msid, num in zip(msids, range(1, len(msids)*2, 2)):
-                    try:
-                        setattr(data_point, msid, float(data_line[num]))
-                    except ValueError:
-                        setattr(data_point, msid, data_line[num])
-
-                data_list.append(data_point)
-
-    # Access data from data_list and plot
-    fig= make_subplots(rows= len(msids), cols= 1, shared_xaxes= True, subplot_titles= msids)
-
-    for i, (msid) in enumerate(msids):
-        x, y= ([] for i in range(2))
-        for data_point in data_list:
-            x.append(getattr(data_point, "datetime"))
-            y.append(getattr(data_point, msid))
-
-        fig.add_trace(go.Scatter(x= x, y= y, mode='lines', name= msid), row= i + 1, col=1)
-
-    fig.update_layout(autosize= True, showlegend= True)
+    # 4. Apply a dark theme to match the PyQt5 GUI
+    fig.update_layout(
+        template="plotly_dark",
+        hovermode="x unified",
+        autosize=True, 
+        showlegend=True
+    )
 
     return fig
