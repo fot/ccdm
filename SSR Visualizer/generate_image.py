@@ -21,7 +21,8 @@ def data_request(self, msids: list) -> pd.DataFrame:
     """Synchronous fetching with urllib, vectorized Pandas processing."""
     def maude_data_request(ts, tp, msid):
         url = ("http://telemetry.cfa.harvard.edu/maude/mrest/"
-               f"FLIGHT/msid.json?m={msid}&ts={ts.strftime('%Y%j%H%M%S')}"
+               f"{self.selectedchannel.upper()}/msid.json?m={msid}"
+               f"&ts={ts.strftime('%Y%j%H%M%S')}"
                f"&tp={tp.strftime('%Y%j%H%M%S')}&ap=t")
         response = urllib.request.urlopen(url)
         return json.loads(response.read())
