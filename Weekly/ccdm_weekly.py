@@ -3,9 +3,9 @@ v1.6 Change Notes:
  - Improves SSR rollover detection
 """
 
+import os
 from datetime import datetime, timedelta, timezone
 import urllib.request
-from os import system
 import warnings
 import time
 import pandas as pd
@@ -17,22 +17,23 @@ from components.limit_violation_detection import (
     get_limit_report_dirs, get_limit_reports, write_limit_violations)
 from components.eia_sequencer_selftest_detection import sequencer_selftest_detection
 from components.scs107_detection import scs107_detection
-from components.misc import create_dir,HTML_HEADER,HTML_SCRIPT
+from components.misc import create_dir, HTML_HEADER, HTML_SCRIPT
 from components.ssr import (get_ssr_data, get_ssr_beat_report_data, ssr_rollover_detection,
-                            make_ssr_by_submod, make_ssr_by_doy, make_ssr_full, get_wk_list)
+                            make_ssr_by_submod, make_ssr_by_doy, make_ssr_full, get_wk_list,
+                            prep_beat_dataframe)
 from components.receiver import (get_receiver_data, spurious_cmd_lock_detection,
                                  write_spurious_cmd_locks)
+
 warnings.filterwarnings('ignore')
 
 
 class UserVariables:
     "User defined variables"
     def __init__(self):
-        system('clear')
+        # Cross-platform clear screen (works on Windows/Linux/Mac)
+        os.system('cls' if os.name == 'nt' else 'clear')
+
         self.get_input_dates()
-        # if self.manual:
-        #     self.get_start_date()
-        #     self.get_end_date()
         self.get_dir_path()
         self.get_ssr_prime()
         self.get_major_events()
@@ -42,64 +43,69 @@ class UserVariables:
         self.get_tlm_corruption_events()
         self.get_cdme_misc_comments()
 
+    def get_start_date(self):
+        "User input for start date"
+        while True:
+            user_input = input('(Manual-Input) Enter the START date YYYY:DOY: ')
+            try:
+                ts = CxoTime(f"{user_input[:4]}:{user_input[-3:]}:00:00:00.000")
+            except ValueError:
+                print(f' - Input "{user_input}" was not in the correct format, try again.')
+                continue
+
+            if ((2001 <= ts.datetime.year <= datetime.now(timezone.utc).year) and
+                (len(user_input) == 8) and (1 <= int(ts.datetime.strftime("%j")) <= 366)):
+                self.ts = ts
+                break
+
+            print(f' - Input "{user_input}" was not a valid date, try again.')
+
+    def get_end_date(self):
+        "User input for end date"
+        while True:
+            user_input = input('(Manual-Input) Enter the END date YYYY:DOY: ')
+            try:
+                tp = CxoTime(f"{user_input[:4]}:{user_input[-3:]}:23:59:59.999")
+            except ValueError:
+                print(f' - Input "{user_input}" was not in the correct format, try again.')
+                continue
+
+            if ((2001 <= self.ts.datetime.year <= tp.datetime.year) and
+                (len(user_input) == 8) and (1 <= int(tp.datetime.strftime("%j")) <= 366)):
+                self.tp = tp
+                break
+
+            print(f' - Input "{user_input}" was invalid, try again.')
+
     def get_input_dates(self):
         "Get the input dates"
-
-        def get_start_date(self):
-            "User input for start date"
-            while True:
-                user_input= input('(Manual-Input) Enter the START date YYYY:DOY: ')
-                try:
-                    ts= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:00:00:00.000")
-                except ValueError:
-                    print(f' - Input "{user_input}" was not in the correct format, try again.')
-                    continue
-                if ((2001 <= ts.datetime.year <= datetime.now(timezone.utc).year) and
-                    (len(user_input) == 8) and (1 <= int(ts.datetime.strftime("%j")) <= 366)):
-                    break
-                print(f' - Input "{user_input}" was not a valid date, try again.')
-            self.ts= ts
-
-        def get_end_date(self):
-            "User input for end date"
-            while True:
-                user_input= input('(Manual-Input) Enter the END date YYYY:DOY: ')
-                try:
-                    tp= CxoTime(f"{user_input[:4]}:{user_input[-3:]}:23:59:59.999")
-                except ValueError:
-                    print(f' - Input "{user_input}" was not in the correct format, try again.')
-                    continue
-                if ((2001 <= self.ts.datetime.year <= tp.datetime.year) and
-                    (len(user_input) == 8) and (1 <= int(tp.datetime.strftime("%j")) <= 366)):
-                    break
-                print(f' - Input "{user_input}" was invalid, try again.')
-            self.tp= tp
-
-        today= datetime.now()
-        current_week_monday= today - timedelta(days= today.weekday())
-        previous_friday=   current_week_monday - timedelta(days= 9)
-        previous_saturday= current_week_monday - timedelta(days= 3)
+        today = datetime.now()
+        current_week_monday = today - timedelta(days=today.weekday())
+        previous_friday = current_week_monday - timedelta(days=9)
+        previous_saturday = current_week_monday - timedelta(days=3)
 
         while True:
-            user_input= input(
-                f'(Auto-Input) Do you want to use "{previous_friday.strftime('%Y:%j')} '
-                f'({previous_friday.strftime('%x')})" thru "{previous_saturday.strftime('%Y:%j')}'
-                f' ({previous_saturday.strftime('%x')})" as the input dates? Y/N: ')
-            if user_input.lower() in ["y"]:
-                self.ts= CxoTime(f"{previous_friday.strftime('%Y:%j')}:00:00:00.000")
-                self.tp= CxoTime(f"{previous_saturday.strftime('%Y:%j')}:00:00:00.000")
+            # Fixed quote syntax for f-string evaluating strftime
+            user_input = input(
+                f'(Auto-Input) Do you want to use "{previous_friday.strftime("%Y:%j")} '
+                f'({previous_friday.strftime("%x")})" thru "{previous_saturday.strftime("%Y:%j")}'
+                f' ({previous_saturday.strftime("%x")})" as the input dates? Y/N: '
+            )
+
+            if user_input.lower() == "y":
+                self.ts = CxoTime(f"{previous_friday.strftime('%Y:%j')}:00:00:00.000")
+                self.tp = CxoTime(f"{previous_saturday.strftime('%Y:%j')}:23:23:59.999")
                 break
-            elif user_input.lower() in ["n"]:
-                get_start_date(self)
-                get_end_date(self)
+            elif user_input.lower() == "n":
+                self.get_start_date()
+                self.get_end_date()
                 break
-            elif user_input.lower() not in ["y", "n"]:
+            else:
                 print(f' - "{user_input}" was not a valid input, please try again.')
 
-        # Print chosen dates:
-        print(f"Set Start Date: {self.ts.datetime.strftime("%Y:%j")}\n"
-              f"Set End Date: {self.tp.datetime.strftime("%Y:%j")}")
-
+        # Print chosen dates (Fixed quote syntax)
+        print(f"Set Start Date: {self.ts.datetime.strftime('%Y:%j')}\n"
+              f"Set End Date: {self.tp.datetime.strftime('%Y:%j')}")
 
     def get_dir_path(self):
         "User input for set directory"
@@ -108,7 +114,7 @@ class UserVariables:
 
     def get_ssr_prime(self):
         "User input for SSR prime"
-        self.ssr_prime= ["B","2026:032:02:36:45"]
+        self.ssr_prime = ["B", "2026:032:02:36:45"]
         print(f"Prime SSR is set at: {self.ssr_prime}")
 
     def get_major_events(self):
@@ -119,18 +125,19 @@ class UserVariables:
                 "\n----Major Events Input----\n"
                 "   Enter unexpected events that occured for the reporting week, "
                 "(ie, CTU TLM processor resets, ect...)"
-                """\n   Enter nothing when completed with Major Event Inputs."""
+                "\n   Enter nothing when completed with Major Event Inputs."
             )
 
             while True:
                 input_item = input("   - Input: ")
-                if input_item in (""):
+                if input_item == "":
                     break
                 major_events_list.append(input_item)
+
             self.major_events_list = major_events_list
             valid_input = input("   Major Events Input(s) Accurate? Y/N: ")
 
-            if valid_input in ("y","Y","yes","YES"):
+            if valid_input.lower() in ("y", "yes"):
                 break
 
             print("    - Clearing Major Events list...")
@@ -144,18 +151,18 @@ class UserVariables:
                 "\n----CDME Performance Events Input----\n"
                 "   Enter any info about any off-nominal behavior that occured for the "
                 "reporting week, (ie, IU resets, CTU CMD processor resets, ect...)"
-                """\n   Enter nothing when completed with CDME Performance Note Inputs."""
+                "\n   Enter nothing when completed with CDME Performance Note Inputs."
             )
             while True:
                 input_item = input("   - Input: ")
-                if input_item in (""):
+                if input_item == "":
                     break
                 cdme_performance_list.append(input_item)
 
             self.cdme_performance_list = cdme_performance_list
             valid_input = input("   CDME Perf Input(s) Accurate? Y/N: ")
 
-            if valid_input in ("y","Y","yes","YES"):
+            if valid_input.lower() in ("y", "yes"):
                 break
 
             print("    - Clearing CDME Perf list...")
@@ -169,18 +176,18 @@ class UserVariables:
                 "\n----RF Performance Events Input----\n"
                 "   Enter any info about any off-nominal behavior that occured for the reporting "
                 "week, (ie, unexpected command lock drops, ect...)"
-                """\n   Enter nothing when completed with CDME Performance Note Inputs."""
+                "\n   Enter nothing when completed with CDME Performance Note Inputs."
             )
             while True:
                 input_item = input("   - Input: ")
-                if input_item in (""):
+                if input_item == "":
                     break
                 rf_performance_list.append(input_item)
 
             self.rf_performance_list = rf_performance_list
             valid_input = input("   RF Perf Input(s) Accurate? Y/N: ")
 
-            if valid_input in ("y","Y","yes","YES"):
+            if valid_input.lower() in ("y", "yes"):
                 break
 
             print("    - Clearing RF Perf list...")
@@ -194,18 +201,18 @@ class UserVariables:
                 "\n----Limit Violation (Non-Autogen) Input----\n"
                 "   Enter any additional limit violations that aren't handled automatically "
                 "(ie, non-CCDM limit violations, ect...)"
-                """\n   Enter nothing when completed with CDME Performance Note Inputs."""
+                "\n   Enter nothing when completed with CDME Performance Note Inputs."
             )
             while True:
                 input_item = input("   - Input: ")
-                if input_item in (""):
+                if input_item == "":
                     break
                 limit_violations_list.append(input_item)
 
             self.limit_violations_list = limit_violations_list
             valid_input = input("   Limit Violation Input(s) Accurate? Y/N: ")
 
-            if valid_input in ("y","Y","yes","YES"):
+            if valid_input.lower() in ("y", "yes"):
                 break
 
             print("    - Clearing Limit Violations list...")
@@ -218,21 +225,21 @@ class UserVariables:
             print(
                 "\n----Telemetry Corruption Input(s)----\n"
                 "   Enter info about any telemetry corruption that occured for the reporting week, "
-                """\n   Enter nothing when completed with Telemetry Corruption Note Inputs."""
+                "\n   Enter nothing when completed with Telemetry Corruption Note Inputs."
             )
             while True:
                 input_item = input("   - Input: ")
-                if (input_item in ("")) and (len(tlm_corruption_list) == 0):
+                if input_item == "" and len(tlm_corruption_list) == 0:
                     tlm_corruption_list.append("Nominal.")
                     break
-                if input_item in (""):
+                if input_item == "":
                     break
                 tlm_corruption_list.append(input_item)
 
             self.tlm_corruption_list = tlm_corruption_list
             valid_input = input("   Telemetry Corruption Input(s) Accurate? Y/N: ")
 
-            if valid_input in ("y","Y","yes","YES"):
+            if valid_input.lower() in ("y", "yes"):
                 break
 
             print("    - Clearing Telemetry Corruption list...")
@@ -240,43 +247,42 @@ class UserVariables:
 
     def get_cdme_misc_comments(self):
         "User input for CDME misc comments for this week."
-
         while True:
             cdme_misc_comments_list = []
             print(
                 "\n----CDME Misc Comment Input(s)----\n"
                 "   Enter any additional comments that occured for the reporting week, "
-                """\n   Enter nothing when completed with CDME Misc Note Inputs."""
+                "\n   Enter nothing when completed with CDME Misc Note Inputs."
             )
             while True:
                 input_item = input("   - Input: ")
-                if input_item in (""):
+                if input_item == "":
                     break
                 cdme_misc_comments_list.append(input_item)
+
+            self.cdme_misc_comments_list = cdme_misc_comments_list
             valid_input = input("   CDME Misc Comment Input(s) Accurate? Y/N: ")
 
-            if valid_input in ("y","Y","yes","YES"):
+            if valid_input.lower() in ("y", "yes"):
                 break
 
             print("    - Clearing CDME Misc Comment list...")
             time.sleep(0.5)
-        self.cdme_misc_comments_list = cdme_misc_comments_list
 
 
-def get_dsn_drs(ts,tp):
+def get_dsn_drs(ts, tp):
     "return a table of DR reports from iFOT"
     url = (
         "https://occweb.cfa.harvard.edu/occweb/web/webapps/ifot/ifot.php?r=home&t=qserver&a=show&"
         "format=list&columns=id,type_desc,tstart,properties&size="
         f"auto&e=DSN_DR.problem&op=properties&tstart={ts}+&tstop={tp}&ul=12"
-        )
+    )
     with urllib.request.urlopen(url) as response:
         return pd.read_html(response.read())
 
 
 def build_config_section(user_vars, data):
     "build the CONFIGURATION section of the report"
-
     config_section = (
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
@@ -294,9 +300,7 @@ def build_config_section(user_vars, data):
     )
 
     for list_item in user_vars.cdme_misc_comments_list:
-        config_section += (
-            f"""<li>{list_item}</li>"""
-        )
+        config_section += f"""<li>{list_item}</li>"""
 
     # CDME Section - SSR Rollover Detection
     config_section += ssr_rollover_detection(user_vars)
@@ -307,31 +311,28 @@ def build_config_section(user_vars, data):
         f"<li><strong>{data.num_supports}</strong> DSN Supports this week</li>"
         f"<li><strong>{data.tx_a_on}</strong> TX-A/PA-A</li>"
         f"<li><strong>{data.tx_b_on}</strong> TX-B/PA-B</li>"
-        )
-    config_section += "</li></ul></div></div>"
+        "</li></ul></div></div>"
+    )
 
     # Bad Visibility Days Section
     config_section += (
         "<div><div><ul><li><strong>Bad Visibility Days:</strong><ul>"
-        f"<li>Receiver-A: {str(list(data.a_bad.keys()))}</li>"
-        f"<li>Receiver-B: {str(list(data.b_bad.keys()))}</li>"
+        f"<li>Receiver-A: {list(data.a_bad.keys())}</li>"
+        f"<li>Receiver-B: {list(data.b_bad.keys())}</li>"
+        "</li></ul></div></div>"
     )
-    config_section += "</li></ul></div></div>"
 
     # DSN DR(s) Section
-    config_section += (
-        "<div><div><ul><li><strong>DSN DRs this week:</strong><ul>"
-    )
-    tmp = get_dsn_drs(user_vars.ts,user_vars.tp)
+    config_section += "<div><div><ul><li><strong>DSN DRs this week:</strong><ul>"
+
+    tmp = get_dsn_drs(user_vars.ts, user_vars.tp)
     df = tmp[0]
-    result = df.to_html(
-        classes="table table-stripped",
-        # columns=["Event ID >","< Type Description >","< TStart (GMT) >","< DSN_DR.problem"],
-        )
-    if len(df) > 1:
-        config_section += result
+
+    if not df.empty and len(df) > 1:
+        config_section += df.to_html(classes="table table-stripped")
     else:
         config_section += "<li>No DSN DRs this week</li>"
+
     config_section += "</li></ul></div></div>"
 
     return config_section
@@ -345,6 +346,7 @@ def build_perf_health_section(user_vars):
         "Limit Violations": user_vars.limit_violations_list,
         "Telemtry Corruption": user_vars.tlm_corruption_list
     }
+
     perf_health_section = (
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
@@ -352,17 +354,14 @@ def build_perf_health_section(user_vars):
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
     )
+
     tlm_corrup_link = "https://occweb.cfa.harvard.edu/twiki/bin/view/SC_Subsystems/CcdmTlmCorrupt"
 
     for title, string_list in perf_health_dict.items():
-        perf_health_section += (
-            f"<div><div><ul><li><strong>{title}:</strong><ul>\n"
-                )
+        perf_health_section += f"<div><div><ul><li><strong>{title}:</strong><ul>\n"
 
-        for list_item in string_list: # User Inputted Items
-            perf_health_section += (
-                f"""<li>{list_item}</li>\n"""
-            )
+        for list_item in string_list:  # User Inputted Items
+            perf_health_section += f"""<li>{list_item}</li>\n"""
 
         if "CDME" in title:
             obc_error_files = get_obc_report_dirs(user_vars)
@@ -371,16 +370,14 @@ def build_perf_health_section(user_vars):
             if obc_error_report_data:
                 perf_health_section += write_obc_errors(obc_error_report_data)
             elif not user_vars.cdme_performance_list:
-                perf_health_section += ("<li>Nominal.</li>\n")
-
+                perf_health_section += "<li>Nominal.</li>\n"
         elif "RF Equipment" in title:
             spurious_cmd_locks = spurious_cmd_lock_detection(user_vars)
 
             if spurious_cmd_locks:
                 perf_health_section += write_spurious_cmd_locks(spurious_cmd_locks)
             else:
-                perf_health_section += ("<li>Nominal.</li>\n")
-
+                perf_health_section += "<li>Nominal.</li>\n"
         elif "Limit Violations" in title:
             limit_dir_list = get_limit_report_dirs(user_vars)
             limit_data = get_limit_reports(limit_dir_list)
@@ -388,13 +385,12 @@ def build_perf_health_section(user_vars):
             if limit_data:
                 perf_health_section += write_limit_violations(limit_data)
             elif not user_vars.limit_violations_list:
-                perf_health_section += ("<li>Nominal.</li>\n")
-
+                perf_health_section += "<li>Nominal.</li>\n"
         elif "Telemtry Corruption" in title:
             perf_health_section += (
                 f"""<li><a href="{tlm_corrup_link}">List of Telemetry Corruption Events"""
                 "</a></li>\n"
-                )
+            )
 
         perf_health_section += "</li></ul></div></div>"
 
@@ -403,46 +399,51 @@ def build_perf_health_section(user_vars):
 
 def build_ssr_dropdown(user_vars, all_beat_report_data):
     "Build the SSR stats dropdown menus"
-    plot_title_dict= {
-        "A": ["SSR-A Current Week Time Strip","SSR-A Year-to-Date By Submodule",
-              "SSR-A Year-To-Date By Day-of-Year","SSR-A Year-to-Date Full Time Strip"],
-        "B": ["SSR-B Current Week Time Strip","SSR-B Year-to-Date By Submodule",
-              "SSR-B Year-To-Date By Day-of-Year","SSR-B Year-to-Date Full Time Strip"],
+    beat_df = prep_beat_dataframe(all_beat_report_data)
+
+    plot_title_dict = {
+        "A": ["SSR-A Current Week Time Strip", "SSR-A Year-to-Date By Submodule",
+              "SSR-A Year-To-Date By Day-of-Year", "SSR-A Year-to-Date Full Time Strip"],
+        "B": ["SSR-B Current Week Time Strip", "SSR-B Year-to-Date By Submodule",
+              "SSR-B Year-To-Date By Day-of-Year", "SSR-B Year-to-Date Full Time Strip"],
     }
-    plot_loc= ("https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/Current_CCDM_Files"
+
+    plot_loc = ("https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/Current_CCDM_Files"
                 f"/Weekly_Reports/SSR_Weekly_Charts/{user_vars.ts.datetime.year}")
-    dropdown_string, url= "",""
-    output_width, output_height= 1074, 710
+
+    dropdown_string, url = "", ""
+    output_width, output_height = 1074, 710
 
     for ssr, plot_titles in plot_title_dict.items():
         dropdown_string += (
             """</div>"""
             """<p></p>"""
             f"""<button type="button" class="collapsible">SSR-{ssr} Plots</button>"""
-            """<div class="content">\n""")
+            """<div class="content">\n"""
+        )
 
         for plot_title in plot_titles:
+            doy_str = user_vars.ts.datetime.strftime('%j').zfill(3)
+
             if "Current Week Time Strip" in plot_title:
-                make_ssr_full(ssr,user_vars,all_beat_report_data,"Cur_TimeStrip")
-                url=  (f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_"
-                       f"{user_vars.ts.datetime.strftime("%j").zfill(3)}_Cur_TimeStrip.html")
+                make_ssr_full(ssr, user_vars, beat_df, "Cur_TimeStrip")
+                url = f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_{doy_str}_Cur_TimeStrip.html"
             elif "Year-to-Date By Submodule" in plot_title:
-                make_ssr_by_submod(ssr,user_vars,all_beat_report_data,"YTD_by_SubMod")
-                url=  (f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_"
-                       f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_SubMod.html")
+                make_ssr_by_submod(ssr, user_vars, beat_df, "YTD_by_SubMod")
+                url = f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_{doy_str}_YTD_by_SubMod.html"
             elif "Year-To-Date By Day-of-Year" in plot_title:
-                make_ssr_by_doy(ssr,user_vars,all_beat_report_data,"YTD_by_DoY")
-                url= (f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_"
-                      f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_by_DoY.html")
+                make_ssr_by_doy(ssr, user_vars, beat_df, "YTD_by_DoY")
+                url = f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_{doy_str}_YTD_by_DoY.html"
             elif "Year-to-Date Full Time Strip" in plot_title:
-                make_ssr_full(ssr,user_vars,all_beat_report_data,"YTD_Timestrip",True)
-                url= (f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_"
-                      f"{user_vars.ts.datetime.strftime('%j').zfill(3)}_YTD_Timestrip.html")
+                make_ssr_full(ssr, user_vars, beat_df, "YTD_Timestrip", True)
+                url = f"{plot_loc}/SSR_{ssr}_{user_vars.ts.datetime.year}_{doy_str}_YTD_Timestrip.html"
             dropdown_string += (
                 f"""<button type="button" class="collapsible">{plot_title}</button>"""
                 """<div class="content">"""
-                f"""<p><iframe src={url} width=\"{output_width}\" height=\"{output_height}\">"""
-                """</iframe></p></div>\n""")
+                f"""<p><iframe src="{url}" width="{output_width}" height="{output_height}">"""
+                """</iframe></p></div>\n"""
+            )
+
     dropdown_string += "</body></li></ul></div></div>"
 
     return dropdown_string
@@ -450,7 +451,6 @@ def build_ssr_dropdown(user_vars, all_beat_report_data):
 
 def build_ssr_playback_section(user_vars, ssr_data, all_beat_report_data):
     "Build the SSR playback section of the report"
-
     plot_loc = ("https://occweb.cfa.harvard.edu/occweb/FOT/engineering/ccdm/"
                 "Current_CCDM_Files/Weekly_Reports/SSR_Weekly_Charts/")
 
@@ -470,22 +470,23 @@ def build_ssr_playback_section(user_vars, ssr_data, all_beat_report_data):
         f"""(<strong>{ssr_data.ssrb_bad}</strong> required re-dump)</li>"""
         f"""<li><strong>{get_wk_list(user_vars,all_beat_report_data)}</strong> submodules """
         f"""with DBEs were detected in <strong>{ssr_data.ssra_good + ssr_data.ssrb_good}"""
-        """</strong> playbacks</li>""")
+        """</strong> playbacks</li>"""
 
-    ssr_playback_section += (
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
         """<p><strong>SSR DBE Plot Links:</strong></p></div></div>"""
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
         f"""<li><a href="{plot_loc}">SSR DBE Plot Archive</a> | """
-        f"""<a href="{plot_explainer_pptx}">SSR DBE Plot Archive</a></li>""")
+        f"""<a href="{plot_explainer_pptx}">SSR DBE Plot Archive</a></li>"""
+    )
 
     if user_vars.ts.datetime.year == user_vars.tp.datetime.year:
         ssr_playback_section += build_ssr_dropdown(user_vars, all_beat_report_data)
     else:
         ssr_playback_section += ("<p><li>SSR Plots are unavaliable for a date "
                                  "range spanning a new year.</p></li></div>")
+
     ssr_playback_section += "</body></li></ul></div></div>"
 
     return ssr_playback_section
@@ -493,27 +494,33 @@ def build_ssr_playback_section(user_vars, ssr_data, all_beat_report_data):
 
 def build_clock_correlation_section(user_vars):
     "Build the Clock Correlation Data section of the report"
-
     clock_corr_section = (
         """<div class="output_area">"""
         """<div class="output_markdown rendered_html output_subarea ">"""
         """<p><strong>Clock Correlation Data:</strong></p></div></div>"""
         """<div class="output_area">"""
-        """<div class="output_markdown rendered_html output_subarea ">""")
+        """<div class="output_markdown rendered_html output_subarea ">"""
+    )
+
     clock_correlation_link = (
         "https://occweb.cfa.harvard.edu/occweb/web/fot_web/eng/subsystems/ccdm/"
-        f"Clock_Rate/Clock_Correlation{user_vars.ts.datetime.year}.htm")
+        f"Clock_Rate/Clock_Correlation{user_vars.ts.datetime.year}.htm"
+    )
     daily_clock_rate_link = (
         "https://occweb.cfa.harvard.edu/occweb/web/fot_web/eng/subsystems/ccdm/"
-        f"Clock_Rate/images/{user_vars.ts.datetime.year}_Daily_Clock_Rate.png")
+        f"Clock_Rate/images/{user_vars.ts.datetime.year}_Daily_Clock_Rate.png"
+    )
     uso_stability_link = (
         "https://occweb.cfa.harvard.edu/occweb/web/fot_web/eng/subsystems/ccdm/"
-        "Clock_Rate/Clock_Rateindex.htm")
+        "Clock_Rate/Clock_Rateindex.htm"
+    )
+
     clock_link_dict = {
         f"Clock Correlation Table {user_vars.ts.datetime.year}":
-            f"""<iframe src={clock_correlation_link} width=\"800\" height=\"700\"></iframe>""",
+            f"""<iframe src="{clock_correlation_link}" width="800" height="700"></iframe>""",
         f"Daily Clock Rate {user_vars.ts.datetime.year}":
-            f"""<img src={daily_clock_rate_link} width=\'1000\' height=\"700\"></img>""",}
+            f"""<img src="{daily_clock_rate_link}" width='1000' height="700"></img>""",
+    }
 
     clock_corr_section += HTML_HEADER
 
@@ -523,19 +530,17 @@ def build_clock_correlation_section(user_vars):
             <div class="content"><p>{plot_link}</p></div><p></p>\n""")
 
     clock_corr_section += HTML_SCRIPT
-
     clock_corr_section += (
         f"""<ul><li><a href="{uso_stability_link}">Link to USO Stability"""
-        " - Clock Correlation Data</a></li></ul>\n")
-
-    clock_corr_section += "</body></li></ul></div></div>"
+        " - Clock Correlation Data</a></li></ul>\n"
+        "</body></li></ul></div></div>"
+    )
 
     return clock_corr_section
 
 
 def build_major_events_section(user_vars):
     "Build the Major Events section of the report."
-
     uso_link = "https://occweb.cfa.harvard.edu/twiki/bin/view/SC_Subsystems/EiaSelfTests"
 
     major_event_section = (
@@ -543,7 +548,8 @@ def build_major_events_section(user_vars):
         """<div class="output_markdown rendered_html output_subarea ">"""
         """<p><strong>Major Events:</strong></p></div></div>"""
         """<div class="output_area">"""
-        """<div class="output_markdown rendered_html output_subarea ">""")
+        """<div class="output_markdown rendered_html output_subarea ">"""
+    )
 
     for list_item in user_vars.major_events_list:
         major_event_section += f"<li>{list_item}</li>"
@@ -565,8 +571,8 @@ def build_major_events_section(user_vars):
 
     major_event_section += (
         f"""<li><a href="{uso_link}">List of EIA Sequencer Self Tests</a></li>"""
+        "</li></ul></div></div>"
     )
-    major_event_section += "</li></ul></div></div>"
 
     return major_event_section
 
@@ -575,45 +581,52 @@ def build_report(user_vars, ssr_data, all_beat_report_data, receiver_data):
     "Build the report using all queried data."
     print("Assembling the report...")
 
-    file_title= ("""<div class="output_area"><div class="output_markdown """
-                  f"""rendered_html output_subarea "><p><strong>CCDM Weekly Report from """
-                  f"""{user_vars.ts.datetime.year}:{user_vars.ts.datetime.strftime("%j")} """
-                  f"""through {user_vars.tp.datetime.year}:{user_vars.tp.datetime.strftime("%j")}"""
-                  """</strong></p></div></div>""")
-    horizontal_line= ("""<div class="output_area">"""
-                       """<div class="output_markdown rendered_html output_subarea">"""
-                       """<hr></div></div>""")
+    doy_ts = user_vars.ts.datetime.strftime('%j')
+    doy_tp = user_vars.tp.datetime.strftime('%j')
 
-    config_section= build_config_section(user_vars, receiver_data)
-    perf_health_section= build_perf_health_section(user_vars)
-    ssr_playback_section= build_ssr_playback_section(user_vars, ssr_data, all_beat_report_data)
-    clock_correlation_section= build_clock_correlation_section(user_vars)
-    major_event_section= build_major_events_section(user_vars)
+    file_title = (
+        """<div class="output_area"><div class="output_markdown """
+        f"""rendered_html output_subarea "><p><strong>CCDM Weekly Report from """
+        f"""{user_vars.ts.datetime.year}:{doy_ts} """
+        f"""through {user_vars.tp.datetime.year}:{doy_tp}"""
+        """</strong></p></div></div>"""
+    )
 
-    html_output= (
+    horizontal_line = (
+        """<div class="output_area">"""
+        """<div class="output_markdown rendered_html output_subarea">"""
+        """<hr></div></div>"""
+    )
+
+    config_section = build_config_section(user_vars, receiver_data)
+    perf_health_section = build_perf_health_section(user_vars)
+    ssr_playback_section = build_ssr_playback_section(user_vars, ssr_data, all_beat_report_data)
+    clock_correlation_section = build_clock_correlation_section(user_vars)
+    major_event_section = build_major_events_section(user_vars)
+
+    html_output = (
         file_title + horizontal_line + config_section + horizontal_line + perf_health_section +
         horizontal_line + ssr_playback_section + horizontal_line + clock_correlation_section +
         horizontal_line + major_event_section + horizontal_line
     )
 
-    file_name = (f"CCDM_Weekly_{user_vars.ts.datetime.strftime("%Y%j")}"
-                 f"_{user_vars.tp.datetime.strftime("%Y%j")}.html")
+    year_doy_ts = user_vars.ts.datetime.strftime('%Y%j')
+    year_doy_tp = user_vars.tp.datetime.strftime('%Y%j')
+    file_name = f"CCDM_Weekly_{year_doy_ts}_{year_doy_tp}.html"
 
     create_dir(f"{user_vars.set_dir}/{user_vars.ts.datetime.year}")
 
-    with open(f"{user_vars.set_dir}/{user_vars.ts.datetime.year}/{file_name}",
-              "w",encoding="utf-8") as file:
+    with open(f"{user_vars.set_dir}/{user_vars.ts.datetime.year}/{file_name}", "w", encoding="utf-8") as file:
         file.write(html_output)
-        file.close()
 
 
 def main():
     "Main execution"
     user_vars = UserVariables()
-    ssr_data= get_ssr_data(user_vars)
-    all_beat_report_data= get_ssr_beat_report_data(user_vars)
-    receiver_data= get_receiver_data(user_vars)
+    ssr_data = get_ssr_data(user_vars)
+    all_beat_report_data = get_ssr_beat_report_data(user_vars)
+    receiver_data = get_receiver_data(user_vars)
     build_report(user_vars, ssr_data, all_beat_report_data, receiver_data)
 
-
-main()
+if __name__ == "__main__":
+    main()
