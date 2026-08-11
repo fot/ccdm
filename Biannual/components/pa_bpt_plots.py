@@ -1,7 +1,7 @@
 "Module to generate PA vs BPT plots for CCDM Biannual Report"
 
 import plotly.graph_objects as go
-from components.misc import parse_csv_file, write_png_file, write_html_file
+from components.misc import parse_csv_file, write_json_file
 
 
 def generate_pa_bpt_plots(user_vars):
@@ -52,4 +52,4 @@ def generate_pa_bpt_plots(user_vars):
                 }
             )
 
-    write_html_file(user_vars, figure, f"{user_vars.end_year}b_TX_BPT.html")
+    write_json_file(user_vars, figure, f"{user_vars.end_year}b_TX_BPT.json")
