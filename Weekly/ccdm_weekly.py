@@ -114,7 +114,7 @@ class UserVariables:
 
     def get_ssr_prime(self):
         "User input for SSR prime"
-        self.ssr_prime = ["B", "2026:032:02:36:45"]
+        self.ssr_prime = ["A", "2026:213:01:32:25"]
         print(f"Prime SSR is set at: {self.ssr_prime}")
 
     def get_major_events(self):
