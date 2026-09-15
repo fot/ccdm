@@ -70,11 +70,8 @@ def calculate_clock_drift(erp_path, nrt_paths, legacy_mode=True):
     # Concatenate and Sort Telemetry
     nrt_df = pd.concat(nrt_dataframes, ignore_index=True)
 
-    # Sort by vcdu to preserve the chronological rollover event
-    nrt_df = nrt_df.sort_values(by='vcdu').reset_index(drop=True)
-
-    # Remove duplicate entries in the nrt_df (duplicates vcdu values sometimes happen due to tlm dropouts)
-    nrt_df = nrt_df.drop_duplicates(subset=['vcdu'], keep='first')
+    # Sort by datetime before processing rollovers.
+    nrt_df = nrt_df.sort_values(by='datetime').reset_index(drop=True)
 
     # Unwrap VCDU rollovers into new column
     nrt_df['corrected_vcdu'] = nrt_df['vcdu'].astype(np.float64) # init column as np.float64
@@ -82,6 +79,12 @@ def calculate_clock_drift(erp_path, nrt_paths, legacy_mode=True):
 
     for idx in rollover_indices: # populate with new corrected values
         nrt_df.loc[idx + 1:, 'corrected_vcdu'] += 2**24
+
+    # Remove duplicate entries in the nrt_df (duplicates vcdu values sometimes happen due to tlm dropouts)
+    # nrt_df = nrt_df.drop_duplicates(subset=['corrected_vcdu'], keep='first')
+
+    # Sort by corrected_vcdu to preserve the chronological rollover event
+    nrt_df = nrt_df.sort_values(by='corrected_vcdu').reset_index(drop=True)
 
     # Now calculate absolute continuous time
     raw_counter_sec = ((nrt_df['num_days'] * 86400.0) + (nrt_df['num_ms'] / 1000.0) + (nrt_df['num_us_frac'] / 1000000.0)).values

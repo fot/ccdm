@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QFileDialog, QTextEdit, QMessageBox, QDialog,
                              QDateTimeEdit, QFormLayout, QGroupBox, QCheckBox)
 from PyQt6.QtGui import QAction, QTextCursor
-from PyQt6.QtCore import QObject, pyqtSignal, QDateTime, QTime, QThread
+from PyQt6.QtCore import QObject, pyqtSignal, QDateTime, QTime, QThread, Qt
 
 # Local Imports
 from clock_processing import calculate_clock_drift
@@ -212,12 +212,11 @@ class ClockDriftApp(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # Tighten main layout margins and spacing to remove dead space
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(4)
+        main_layout.setSpacing(6)
 
-        # Active Ephemeris UI Block
+        # Active Ephemeris Row
         erp_layout = QHBoxLayout()
         erp_layout.setContentsMargins(0, 0, 0, 0)
         self.lbl_erp_path = QLabel("No ERP file selected.")
@@ -227,7 +226,7 @@ class ClockDriftApp(QMainWindow):
         erp_layout.addStretch()
         main_layout.addLayout(erp_layout)
 
-        # Active Telemetry Queue UI Block
+        # Active Telemetry Queue Box
         nrt_layout = QVBoxLayout()
         nrt_layout.setContentsMargins(0, 0, 0, 0)
         nrt_layout.setSpacing(2)
@@ -254,10 +253,12 @@ class ClockDriftApp(QMainWindow):
         
         main_layout.addLayout(run_layout)
 
-        # Post-Processing UI Block
+        # POST-PROCESSING UI BLOCK (Multi-row)
         self.output_group = QGroupBox("Output Generation & Post-Processing")
-        output_layout = QHBoxLayout()
+        output_main_layout = QVBoxLayout()
 
+        # Top Row: Individual Outputs
+        output_row1 = QHBoxLayout()
         self.btn_binaries = QPushButton("Export Binary DBs")
         self.btn_binaries.clicked.connect(self.export_binaries)
 
@@ -273,12 +274,29 @@ class ClockDriftApp(QMainWindow):
         self.btn_csv = QPushButton("Export CSV")
         self.btn_csv.clicked.connect(self.export_csv)
 
-        self.output_buttons = [self.btn_binaries, self.btn_trend, self.btn_corr, self.btn_plot, self.btn_csv]
+        output_row1.addWidget(self.btn_binaries)
+        output_row1.addWidget(self.btn_trend)
+        output_row1.addWidget(self.btn_corr)
+        output_row1.addWidget(self.btn_plot)
+        output_row1.addWidget(self.btn_csv)
+        
+        # Middle Row: Run All (Except CSV)
+        output_row2 = QHBoxLayout()
+        self.btn_run_all = QPushButton("Run All Reports (Exclude CSV)")
+        self.btn_run_all.setMinimumHeight(30)
+        self.btn_run_all.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
+        self.btn_run_all.clicked.connect(self.run_all_outputs)
+        output_row2.addWidget(self.btn_run_all)
+
+        output_main_layout.addLayout(output_row1)
+        output_main_layout.addLayout(output_row2)
+        self.output_group.setLayout(output_main_layout)
+        
+        self.output_buttons = [self.btn_binaries, self.btn_trend, self.btn_corr, 
+                               self.btn_plot, self.btn_csv, self.btn_run_all]
         for btn in self.output_buttons:
             btn.setEnabled(False) 
-            output_layout.addWidget(btn)
 
-        self.output_group.setLayout(output_layout)
         main_layout.addWidget(self.output_group)
 
         # Console Block
@@ -286,7 +304,10 @@ class ClockDriftApp(QMainWindow):
         self.txt_output = QTextEdit()
         self.txt_output.setReadOnly(True)
         self.txt_output.setStyleSheet("font-family: Consolas, monospace; background-color: #1e1e1e; color: #d4d4d4;")
-        main_layout.addWidget(self.txt_output)
+        
+        # The 'stretch=1' parameter below forces the Console to absorb all extra 
+        # vertical window space, tightly packing the labels & lists at the top.
+        main_layout.addWidget(self.txt_output, stretch=1)
 
     def check_ready_state(self):
         has_erp = self.erp_file is not None
@@ -362,7 +383,7 @@ class ClockDriftApp(QMainWindow):
         if self.legacy_mode:
             print("[UI] Pipeline execution configured for Legacy Mode overrides.")
             
-        self.worker = PipelineWorker(self.erp_file, self.nrt_files)
+        self.worker = PipelineWorker(self.erp_file, self.nrt_files, self.legacy_mode)
         self.worker.finished.connect(self.on_calculation_finished)
         self.worker.error.connect(self.on_calculation_error)
         self.worker.start()
@@ -431,6 +452,48 @@ class ClockDriftApp(QMainWindow):
                 print(f"[UI] Plot successfully saved to {file_path}")
         except Exception as e:
             print(f"[ERROR] Plot generation failed: {e}")
+
+    def run_all_outputs(self):
+        try:
+            out_dir = QFileDialog.getExistingDirectory(self, "Select Output Directory for All Reports")
+            if out_dir:
+                out_path = Path(out_dir)
+                filetitle = get_correlation_report_title(self.nrt_df)
+                
+                print(f"\n[UI] Executing batch output generation to {out_path}...\n")
+                
+                # 1. Export Binaries
+                try:
+                    convert_dis_file(self.nrt_df, str(out_path / f"{filetitle}.DIS"))
+                    convert_dat_file(self.nrt_df, str(out_path / f"{filetitle}.DAT"))
+                    print(f"[UI] Binary DBs successfully generated.")
+                except Exception as e:
+                    print(f"[ERROR] Binary DB generation failed: {e}")
+
+                # 2. Trending Report
+                try:
+                    generate_trending_report(self.nrt_df, out_path / "Master_Trending.xlsx")
+                    print(f"[UI] Trending report successfully generated.")
+                except Exception as e:
+                    print(f"[ERROR] Trending report generation failed: {e}")
+
+                # 3. Correlation Report
+                try:
+                    generate_correlation_report(self.nrt_df, self.nrt_files, self.erp_file, out_path)
+                    print(f"[UI] Correlation report successfully generated.")
+                except Exception as e:
+                    print(f"[ERROR] Correlation report generation failed: {e}")
+
+                # 4. Residual Plot
+                try:
+                    generate_residual_plot(self.nrt_df, out_path / f"{filetitle}_Residuals.html")
+                    print(f"[UI] Residual plot successfully generated.")
+                except Exception as e:
+                    print(f"[ERROR] Residual plot generation failed: {e}")
+                    
+                print("\n[UI] Batch output generation complete.")
+        except Exception as e:
+            print(f"[ERROR] Batch output execution failed: {e}")
 
     def export_csv(self):
         filetitle = get_correlation_report_title(self.nrt_df)
