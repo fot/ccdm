@@ -153,23 +153,46 @@ def generate_polar_plot(self):
         ax.plot([prev_pb_angle, prev_pb_angle], [0, 1.2], color='red', linewidth=3,
                 linestyle='--', label=f"Previous Playback: {self.pb_pointers[-1]:,}")
 
-    # Shading
+    # --- Shaded region between Playback and Record Pointer ---
     if self.pb_pointers[0] != self.rc_pointer:
-        theta0 = pb_angle % (2 * np.pi)
-        theta1 = rc_angle % (2 * np.pi)
+        theta0 = pb_angle % (2 * np.pi) # Red Line
+        theta1 = rc_angle % (2 * np.pi) # Blue Line
         if theta1 <= theta0:
             theta1 += 2 * np.pi
         theta_fill = np.linspace(theta0, theta1, 200)
         ax.fill_between(theta_fill, 0, 1.2, color='red', alpha=0.2)
 
-    # Labels and Grid Lines
+    # --- Draw curved arrow from Playback to Record Pointer ---
+    if self.pb_pointers[0] != self.rc_pointer:
+        r_arrow = 0.5  # Mid-radius height for the arrow arc
+
+        theta0 = rc_angle % (2 * np.pi)  # Blue line
+        theta1 = pb_angle % (2 * np.pi)    # Red line
+
+        # Ensure theta increases to move clockwise
+        if theta1 <= theta0:
+            theta1 += 2 * np.pi
+
+        theta_arrow = np.linspace(theta0, theta1, 100)
+
+        # Draw the curved arc
+        ax.plot(theta_arrow, np.full_like(theta_arrow, r_arrow), color='black', alpha=0.33, linewidth=1)
+
+        # Draw arrowhead at the endpoint pointing clockwise along the tangent
+        ax.annotate(
+            '', xy=(theta1, r_arrow),
+            xytext=(theta_arrow[-5], r_arrow),
+            arrowprops=dict(arrowstyle="-|>", color='black', alpha=0.33, linewidth=1, mutation_scale=18))
+
+    # --- Labels and Grid Lines ---
     angles_rad = np.linspace(0, 2 * np.pi, 8, endpoint=False)
     current_mode = getattr(self, 'display_mode', 'pointers')
+
     for i, angle in enumerate(angles_rad):
         # Draw Plotly-style dashed grid lines
         ax.plot([angle, angle], [0, 1.2], color='black', alpha=0.1, linewidth=2, linestyle='--')
 
-        # Labels
+        # Plot Labels
         if current_mode == "time":
             tick_pointer = i * ((ssr_max - ssr_min) / 8)
             pointers_to_go = (tick_pointer - self.rc_pointer) % ssr_max
@@ -179,15 +202,29 @@ def generate_polar_plot(self):
         else:
             val = int(ssr_min + i * ((ssr_max - ssr_min) / 8))
             label_text = f"{val:,}"
-            if i == 0: label_text = f"{ssr_max:,}\n{label_text}"
+            if i == 0: label_text = f"{label_text}\n({ssr_max:,})"
 
         ax.text(angle, 1.28, label_text, ha='center', va='center', fontsize=14, color='black')
 
-    # Status Alert
+    # --- Rollover Annotation ---
+    distance_counts = (self.pb_pointers[0] - self.rc_pointer) % ssr_max
+    counts_needed = (distance_counts - 200) % ssr_max # within 200 counts of pointers meeting
+
+    if hasattr(self, 'rc_rate') and self.rc_rate > 0:
+        hours_to_rollover = counts_needed / self.rc_rate
+        rollover_dt = self.rc_timestamp + timedelta(hours=hours_to_rollover)
+        rollover_str = rollover_dt.strftime('%m/%d/%Y (%Y:%j) %H:%M:%S UTC')
+    else:
+        rollover_str = "N/A"
+
+    fig.text(0.02, 0.98, f"Next Rollover\n{rollover_str}", color="black", fontsize=12,
+             ha="left", va="top", bbox=dict(facecolor='white', edgecolor='black', boxstyle='square,pad=0.3'))
+
+    # --- Playback Active Status Alert ---
     playback_active = data_request(self, [f"COS{self.selectedssr}PBEN"])
     print(f"  - Checking if SSR-{self.selectedssr} has an active playback...")
     if not playback_active.empty and str(playback_active['values'].iloc[-1]) == "1":
-        fig.text(0.95, 0.95, "PLAYBACK ACTIVE", color="black", fontsize=14,
+        fig.text(0.98, 0.98, "PLAYBACK ACTIVE", color="black", fontsize=14,
                  ha="right", va="top", bbox=dict(facecolor='red',
                                                  edgecolor='black', boxstyle='square,pad=0.3'))
 
@@ -198,9 +235,9 @@ def generate_polar_plot(self):
     fig.legend(loc='lower left', bbox_to_anchor=(0.02, 0.02), 
                frameon=True, facecolor='white', framealpha=1.0, edgecolor='black', fontsize=12)
 
-    # Timestamp: Docked securely at the bottom right
+    # --- Generation Timestamp ---
     current_time_str = datetime.now(timezone.utc).strftime('%m/%d/%Y (%Y:%j) %H:%M:%S UTC')
-    fig.text(0.95, 0.05, current_time_str, ha='right', va='bottom', fontsize=12, color='black')
+    fig.text(0.98, 0.02, current_time_str, ha='right', va='bottom', fontsize=12, color='black')
 
     # Render
     canvas = FigureCanvasAgg(fig)

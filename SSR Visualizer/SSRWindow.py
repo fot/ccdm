@@ -1,6 +1,6 @@
 """
 Module to create a GUI for SSR Pointer Visualization.
-Handles user inputs, continuous updating, and dynamic image rendering.
+Handles user inputs, auto updating, and dynamic image rendering.
 """
 
 import sys
@@ -80,7 +80,7 @@ class SSRPointerWindow(QtWidgets.QWidget):
         # --- Build GUI Components ---
         self._build_ssr_selection()           
         self._build_channel_selection()       
-        self._build_continuous_checkbox()     
+        self._build_auto_update_checkbox()     
         self._build_toggle_display_checkbox() 
         self._build_query_rate()              
         self._build_image_output()            
@@ -111,13 +111,13 @@ class SSRPointerWindow(QtWidgets.QWidget):
         if self.plot_rgba is None:
             print(f"  - (Error): Cannot generate plot.\n")
 
-    def toggle_continuous(self, checked):
+    def toggle_auto_update(self, checked):
         if checked:
             self.timer.start(30000) 
             self.run_ssr()          
         else:
             self.timer.stop()
-            print("  - Continuous mode DISABLED.\n")
+            print("  - Auto-update mode DISABLED.\n")
 
     def toggle_display(self, checked):
         self.display_mode = "time" if checked else "pointers"
@@ -138,10 +138,12 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.ssrlabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
         self.ssrlabel.setMinimumHeight(30)
         self.layout.addWidget(self.ssrlabel, 1, 0)
+
         self.ssrcombobox = QtWidgets.QComboBox()
         self.ssrcombobox.addItems(["A", "B"])
         self.ssrcombobox.setEditable(True)
         self.ssrcombobox.setMinimumHeight(30)
+        self.ssrcombobox.setToolTip("Select which SSR to visualize.")
         line_edit = self.ssrcombobox.lineEdit()
         self.line_edit_align(line_edit)
         self.layout.addWidget(self.ssrcombobox, 1, 1)
@@ -153,26 +155,30 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.channellabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
         self.channellabel.setMinimumHeight(30)
         self.layout.addWidget(self.channellabel, 1, 2)
+
         self.channelcombobox = QtWidgets.QComboBox()
         self.channelcombobox.addItems(["Flight", "ASVT"])
         self.channelcombobox.setEditable(True)
         self.channelcombobox.setMinimumHeight(30)
+        self.channelcombobox.setToolTip("Select which channel to source data from.")
         line_edit = self.channelcombobox.lineEdit()
         self.line_edit_align(line_edit)
         self.layout.addWidget(self.channelcombobox, 1, 3)
         self.selectedchannel = self.channelcombobox.currentText()
         self.channelcombobox.currentTextChanged.connect(self.selected_channel)
 
-    def _build_continuous_checkbox(self):
-        self.continuous_checkbox = QtWidgets.QCheckBox("Continuous")
-        self.continuous_checkbox.setMinimumHeight(30)
-        self.layout.addWidget(self.continuous_checkbox, 2, 0,
+    def _build_auto_update_checkbox(self):
+        self.auto_update_checkbox = QtWidgets.QCheckBox("Auto-Update")
+        self.auto_update_checkbox.setMinimumHeight(30)
+        self.auto_update_checkbox.setToolTip("Enable or disable automatic updates every 30 seconds.")
+        self.layout.addWidget(self.auto_update_checkbox, 2, 0,
             alignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        self.continuous_checkbox.toggled.connect(self.toggle_continuous)
+        self.auto_update_checkbox.toggled.connect(self.toggle_auto_update)
 
     def _build_toggle_display_checkbox(self):
         self.display_checkbox = QtWidgets.QCheckBox("Pointer/Time")
         self.display_checkbox.setMinimumHeight(30)
+        self.display_checkbox.setToolTip("Toggle display modes between Pointer and Time Modes. Unchecked is Pointer Mode.")
         self.layout.addWidget(self.display_checkbox, 2, 1,
             alignment=QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
         self.display_checkbox.toggled.connect(self.toggle_display)
@@ -182,10 +188,12 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.querylabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
         self.querylabel.setMinimumHeight(30)
         self.layout.addWidget(self.querylabel, 2, 2)
+
         self.querycombobox = QtWidgets.QComboBox()
         self.querycombobox.addItems(["18.6 hr", "24 hr", "48 hr"])
         self.querycombobox.setEditable(True)
         self.querycombobox.setMinimumHeight(30)
+        self.querycombobox.setToolTip("Select the query time range (i.e., how far back in time to query).")
         line_edit = self.querycombobox.lineEdit()
         self.line_edit_align(line_edit)
         self.layout.addWidget(self.querycombobox, 2, 3)
@@ -260,6 +268,7 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.runssrbutton = QtWidgets.QPushButton("Run SSR Visualizer")
         self.runssrbutton.setMinimumHeight(40)
         self.runssrbutton.setStyleSheet(self.greenBackground)
+        self.runssrbutton.setToolTip("Send the order to the chef... I mean, run the SSR Visualizer.")
         runfont = self.runssrbutton.font()
         runfont.setBold(True)
         self.runssrbutton.setFont(runfont)
@@ -270,6 +279,7 @@ class SSRPointerWindow(QtWidgets.QWidget):
         self.quitbutton = QtWidgets.QPushButton("Quit")
         self.quitbutton.setMinimumHeight(40)
         self.quitbutton.setStyleSheet(self.redBackground)
+        self.quitbutton.setToolTip("Like you really needed a ToolTip for the Quit button...")
         quitfont = self.quitbutton.font()
         quitfont.setBold(True)
         self.quitbutton.setFont(quitfont)
