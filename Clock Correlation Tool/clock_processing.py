@@ -72,6 +72,7 @@ def calculate_clock_drift(erp_path, nrt_paths, legacy_mode=True):
 
     # Sort by datetime before processing rollovers.
     nrt_df = nrt_df.sort_values(by='datetime').reset_index(drop=True)
+    log_callback(f"Telemetry data concatenated and sorted by datetime. Total records: {len(nrt_df)}")
 
     # Unwrap VCDU rollovers into new column
     nrt_df['corrected_vcdu'] = nrt_df['vcdu'].astype(np.float64) # init column as np.float64
@@ -250,7 +251,7 @@ def weekly_trending(nrt_df):
     drift_str = f"{global_c3:.3e}"
 
     print(
-        f"{'RefTime (UTC)':<24} | {'RefCounts':<10} | {'Rate (Quadratic)':<32} | "
+        f"\n{'RefTime (UTC)':<24} | {'RefCounts':<10} | {'Rate (Quadratic)':<32} | "
         f"{'Drift (Quadratic)':<25} | {'Span (Days)':<12}\n"
         f"{ref_time:<24} | {ref_count:<10.0f} | {rate_str:<32} | "
         f"{drift_str:<25} | {f'{span_days:.2f} Days':<12}"

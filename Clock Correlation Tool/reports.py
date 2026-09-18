@@ -6,10 +6,11 @@ from pathlib import Path
 from openpyxl import load_workbook
 from copy import copy
 from astropy.time import Time, TimeDelta
+from bs4 import BeautifulSoup
 import astropy.units as u
 
 #Local Imports
-from misc import log_callback, get_constants
+from misc import log_callback, error_callback, get_constants
 
 # CONSTANTS
 constants = get_constants()
@@ -523,3 +524,67 @@ def generate_trending_report(nrt_df, output_path=None):
             print("[ERROR] Could not write to Excel file. Is the spreadsheet currently open in Excel?")
 
     return new_df
+
+
+def update_html_table(df, filepath):
+    "Update the clock correlation html table with new data from the DataFrame."
+
+    # 1. Read the file with UTF-16 encoding
+    with open(filepath, "r", encoding="utf-16") as file:
+        soup = BeautifulSoup(file, "lxml")
+
+    # 2. Find the table and all rows
+    table = soup.find("table")
+    rows = table.find_all("tr")
+
+    # 3. Clone an existing data row to retain exact Microsoft Word formatting
+    new_row_soup = BeautifulSoup(str(rows[1]), "lxml")
+    new_row = new_row_soup.tr
+
+    # 4. Define the new values to append, pull values from df
+    try:
+        global_c2 = df['global_rate'].iloc[0]
+        global_c3 = df['global_drift'].iloc[0]
+
+        # Extract datetime directly from the astropy_time object to preserve fractional seconds
+        ref_time = df['astropy_time'].iloc[0].datetime.strftime('%Y:%j:%H:%M:%S.%f')
+        ref_count = df['corrected_vcdu'].iloc[0]
+        span_days = (df['astropy_time'].iloc[-1] - df['astropy_time'].iloc[0]).sec / 86400.0
+        
+        rate_str = f"{global_c2:.12f}"
+        
+        # Format the scientific notation, split at 'E', and zero-pad the exponent to 4 digits
+        base, exp = f"{global_c3:.3E}".split('E')
+        drift_str = f"{base}E{exp[0]}{int(exp[1:]):04d}"
+
+        new_values = [
+            f"{ref_time:<24}",
+            f"{ref_count:<10.0f}",
+            f"{rate_str:<32}",
+            f"{drift_str:<25}",
+            f"{span_days:.1f} days",
+            "A"
+        ]
+    except Exception as e:
+        error_callback(f"Data extraction failed: {repr(e)}")
+        new_values = None
+
+    # 5. Inject the new values into the cloned HTML elements
+    if new_values:
+        try:
+            cells = new_row.find_all("td")
+            for cell, value in zip(cells, new_values):
+                # Target the innermost span to preserve the specific font and #1F497D blue color
+                span = cell.find("span")
+                if span:
+                    # Replaces the old text with the new text, wiping out meaningless <o:p> tags
+                    span.string = str(value)
+
+            # 6. Append the cloned, updated row to the bottom of the table
+            table.append(new_row)
+
+            # 7. Save the updated file, writing it back out in UTF-16
+            with open(filepath, "w", encoding="utf-16") as file:
+                file.write(str(soup))
+        except Exception as e:
+            error_callback(f"Unable to append data to HTML table, skipping...: {repr(e)}")

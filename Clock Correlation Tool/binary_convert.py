@@ -5,10 +5,8 @@ import pandas as pd
 import os
 from scipy.optimize import fsolve
 
-
 # Local Imports
 from misc import log_callback, get_constants
-
 
 # Pull Constants
 CONSTANTS = get_constants()
@@ -218,12 +216,12 @@ def dat_file_to_dataframe(filepath):
     return pd.DataFrame(output_data)
 
 
-def dataframe_to_dis_file(df, init_length, input_filepath, output_filepath):
+def dataframe_to_dis_file(df, init_length, inputdir, outputdir):
     HEADER_SIZE = 38
     RECORD_SIZE = 175
     
     # --- 1. EXTRACT ORIGINAL HEADER & CALCULATE NEW SIZES ---
-    with open(input_filepath, 'rb') as orig_file:
+    with open(inputdir, 'rb') as orig_file:
         orig_header_data = orig_file.read(HEADER_SIZE)
         orig_header_text = orig_header_data.decode('ascii', errors='ignore')
         orig_values = orig_header_text.split()
@@ -239,7 +237,7 @@ def dataframe_to_dis_file(df, init_length, input_filepath, output_filepath):
     header_bytes = header_str.ljust(HEADER_SIZE)[:HEADER_SIZE].encode('ascii')
 
     # --- 2. WRITE THE EDITED DATA RECORDS ---
-    with open(output_filepath, 'wb') as outfile:
+    with open(outputdir, 'wb') as outfile:
         outfile.write(header_bytes)
 
         for index, row in df.iterrows():
@@ -271,7 +269,7 @@ def dataframe_to_dis_file(df, init_length, input_filepath, output_filepath):
         INDEX_ENTRY_SIZE = 20
 
         # Grab the proprietary prefix from the original file (if it exists) to maintain consistency
-        with open(input_filepath, 'rb') as orig_file:
+        with open(inputdir, 'rb') as orig_file:
             orig_file.seek(orig_data_byte_size)
             orig_index_blob = orig_file.read(INDEX_ENTRY_SIZE)
             # Use the first 10 bytes as the proprietary binary prefix
@@ -287,19 +285,19 @@ def dataframe_to_dis_file(df, init_length, input_filepath, output_filepath):
             # Write new entry
             outfile.write(last_proprietary_prefix + offset_bytes)
 
-    apply_fresh_padding(output_filepath)
+    apply_fresh_padding(outputdir)
     log_callback(f"Update complete! {new_record_count - init_length} new record(s) appended, total of "
-                 f"{new_record_count} records. Saved to {output_filepath.name}")
+                 f"{new_record_count} records. Saved to {Path(outputdir).name}")
 
 
-def dataframe_to_dat_file(df, init_length, output_filepath):
+def dataframe_to_dat_file(df, init_length, inputdir, outputdir):
     """
     Writes the dataframe to a new raw binary .DAT file.
     Enforces Big-Endian (>) packing and strictly sequential 170-byte writes.
     """
     record_count = 0
 
-    with open(output_filepath, 'wb') as outfile:
+    with open(outputdir, 'wb') as outfile:
         for index, row in df.iterrows():
             std_dev = row['odb_clock_std_dev']
             errtime = row['odb_clock_errtime']
@@ -327,75 +325,42 @@ def dataframe_to_dat_file(df, init_length, output_filepath):
             outfile.write(full_record)
             record_count += 1
 
-    apply_fresh_padding(output_filepath)
+    apply_fresh_padding(outputdir)
     log_callback(f"Update complete! {record_count - init_length} new record(s) appended, total of "
-                 f"{record_count} records. Saved to {output_filepath.name}")
+                 f"{record_count} records. Saved to {Path(outputdir).name}")
 
 
-def convert_dis_file(nrt_df, input_filepath):
+def convert_dis_file(nrt_df, inputdir, outputdir):
     """
     Read a .DIS file, convert it to a DataFrame, edit it,
     and write it back to a new .DIS file.
     """
-    input_path = Path(input_filepath)
-    input_filename = input_path.name
-
-    # Increment the file number (assumes format like CLKHST_XXXX.DIS)
-    try:
-        base_name, ext = input_filename.split('.')
-        # Split by underscore and increment the numeric portion
-        name_parts = base_name.split('_')
-        file_num = int(name_parts[-1])
-        output_filename = f"{name_parts[0]}_{file_num + 1}.{ext}"
-    except (IndexError, ValueError):
-        output_filename = f"NEW_{input_filename}"
-
-    output_filepath = input_path.parent / output_filename
-
     # 1. Read existing database
-    dis_file_data = dis_file_to_dataframe(input_path)
-    # dis_file_data.to_csv(Path(f"{input_path.parent}/{input_filename}.csv"), index=False)
+    dis_file_data = dis_file_to_dataframe(Path(inputdir))
 
     # 2. Format new telemetry data
     append_data = format_for_binary_export(nrt_df)
 
     # 3. Combine DataFrames
     combined_data = pd.concat([append_data, dis_file_data], ignore_index=True)
-    # combined_data.to_csv(Path(f"{output_filepath.parent}/{output_filename}.csv"), index=False)
 
     # 4. Write new binary file
-    dataframe_to_dis_file(combined_data, len(dis_file_data), input_path, output_filepath)
+    dataframe_to_dis_file(combined_data, len(dis_file_data), inputdir, outputdir)
 
 
-def convert_dat_file(nrt_df, input_filepath):
+def convert_dat_file(nrt_df, inputdir, outputdir):
     """
     Read a .DAT file, convert it to a DataFrame, format new data,
     reverse the append order, and write back to a new .DAT file.
     """
-    input_path = Path(input_filepath)
-    input_filename = input_path.name
-
-    # Increment the file number (assumes format like CLKHST_XXXX.DAT)
-    try:
-        base_name, ext = input_filename.split('.')
-        name_parts = base_name.split('_')
-        file_num = int(name_parts[-1])
-        output_filename = f"{name_parts[0]}_{file_num + 1}.{ext}"
-    except (IndexError, ValueError):
-        output_filename = f"NEW_{input_filename}"
-
-    output_filepath = input_path.parent / output_filename
-
     # 1. Read existing database
-    dat_file_data = dat_file_to_dataframe(input_path)
-    # dat_file_data.to_csv(Path(f"{input_path.parent}/{input_filename}.csv"), index=False)
+    dat_file_data = dat_file_to_dataframe(Path(inputdir))
 
     # 2. Format new telemetry data
     append_data = format_for_binary_export(nrt_df)
 
     # 3. Combine DataFrames
     combined_data = pd.concat([dat_file_data, append_data], ignore_index=True)
-    # combined_data.to_csv(Path(f"{output_filepath.parent}/{output_filename}.csv"), index=False)
 
     # 4. Write new binary file
-    dataframe_to_dat_file(combined_data, len(dat_file_data), output_filepath)
+    dataframe_to_dat_file(combined_data, len(dat_file_data), inputdir, outputdir)
