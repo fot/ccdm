@@ -27,7 +27,7 @@ def get_correlation_report_title(df):
     return filetitle
 
 
-def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=Path(), output_path=Path()):
+def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=None, output_path=Path()):
     """
     Generates a legacy-formatted .txt report mirroring the 1990s Pascal OFLS tool.
     Uses the standardized quadratic column names from the updated Pipeline dataframe.
@@ -101,7 +101,7 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=Path(), output_
 
     # If no nrt paths provided (e.g. from GUI MAUDE pull), generate placeholders
     if not nrt_paths and total_passes > 0:
-        nrt_paths = [f"Database_Extract_{i}" for i in range(total_passes)]
+        nrt_paths = [f"STO_Extract_{i + 1} ({Path(sto_path).name})" for i in range(total_passes)]
 
     for idx, path in enumerate(nrt_paths, start=1):
         filename = os.path.basename(path)
@@ -397,7 +397,7 @@ def generate_trending_report(nrt_df, output_path=None):
     Agnostic exit path: returns the new dataframe slice, optionally appends to Excel file.
     """
     NOMINAL_RATE = 0.25625
-    
+
     # Define astropy Time epochs in TAI (continuous seconds, no leap seconds)
     epoch_1958 = Time('1958-01-01 00:00:00', scale='tai')
     epoch_1985 = Time('1985-01-01 00:00:00', scale='tai')
@@ -407,25 +407,39 @@ def generate_trending_report(nrt_df, output_path=None):
     for idx in np.where(np.diff(vcdus) < -1000000)[0]:
         vcdus[idx+1:] += 2**24
 
-    # 1. Quickly check the Excel file just to find the last empty row
+    # 1. Quickly check the Excel file to find the last empty row AND last date
     current_max_row = 1
     file_exists = False
+    last_existing_time = None
 
     if output_path:
         file_exists = os.path.exists(output_path) and os.path.getsize(output_path) > 0
         if file_exists:
             try:
                 wb = load_workbook(output_path, read_only=True)
-                current_max_row = wb.active.max_row
+                ws = wb.active
+                current_max_row = ws.max_row
+
+                # Check the last row for the most recent timestamp in Column G (Index 6)
+                if current_max_row > 1:
+                    last_row = next(ws.iter_rows(min_row=current_max_row, max_row=current_max_row))
+                    last_time_val = last_row[6].value
+
+                    if last_time_val:
+                        # Ensures smooth comparison whether parsed as datetime or string
+                        last_existing_time = pd.to_datetime(last_time_val).to_pydatetime()
+
                 wb.close()
             except Exception as e:
-                print(f"[ERROR] Could not read Excel file to find max row: {e}. Aborting.")
-                return
+                print(f"[ERROR] Could not read Excel file to find max row/time: {e}. Aborting.")
+                return pd.DataFrame()
 
     # 2. Process new passes and inject Live Excel Formulas
     new_rows = []
+    skipped_count = 0
+    added_count = 0  # Replaces 'i' to ensure Excel row spacing is accurate after skipping
 
-    for i, (day_id, group) in enumerate(nrt_df.groupby('pass_id')):
+    for day_id, group in nrt_df.groupby('pass_id'):
         pass_vcdu = group['vcdu'].values
 
         # Pull the new 2nd-order degree fit data
@@ -438,28 +452,29 @@ def generate_trending_report(nrt_df, output_path=None):
         delta_to_ref = vcdu_ref - pass_vcdu[0]
 
         # Evaluate the absolute 2nd-degree polynomial directly at the major frame
-        # (Since trend_init_time is 1985 epoch, this result is seconds since 1985)
         ref_time_sec = (trend_init_time +
                        (trend_rate * delta_to_ref) +
                        ((trend_drift / 2.0) * (delta_to_ref ** 2)))
 
         # --- ASTROPY TIME CONVERSION ---
-        # Add those continuous seconds to the 1985 TAI epoch, then convert to UTC to apply leap seconds
         dt_final_tai = epoch_1985 + (ref_time_sec * u.second)
         dt_final_utc = dt_final_tai.utc
-        
-        # Extract native Python datetime from the UTC object for Excel formatting
         dt_datetime = dt_final_utc.datetime
+        
+        # --- OVERLAP / DUPLICATE CHECK ---
+        # Skip this pass if the generated time is older than or equal to the last recorded report time
+        if last_existing_time and dt_datetime <= last_existing_time:
+            skipped_count += 1
+            continue
+
         hosc_final = dt_datetime.strftime('%Y:%j:%H:%M:%S.%f')
         doy_decimal = dt_datetime.timetuple().tm_yday + (dt_datetime.hour / 24.0) + (dt_datetime.minute / 1440.0) + ((dt_datetime.second + dt_datetime.microsecond / 1e6) / 86400.0)
 
         # --- EXCEL FORMULA INJECTION ---
-        # Calculate exactly which Excel row this specific loop will be written to
-        excel_row = current_max_row + 1 + i
+        excel_row = current_max_row + 1 + added_count
 
         formula_30min = f"=D{excel_row}-0.25625"
 
-        # If this isn't the very first row under the header, we can build the 1-day formulas
         if excel_row > 2:
             formula_1day = (f"=IF((B{excel_row}-B{excel_row-1})<0, "
                             f"(C{excel_row}-C{excel_row-1})/(B{excel_row}-B{excel_row-1}+16777216)-{NOMINAL_RATE}, "
@@ -469,7 +484,6 @@ def generate_trending_report(nrt_df, output_path=None):
             formula_1day = np.nan
             formula_1day_sq = np.nan
 
-        # Map directly to the headers
         new_rows.append({
             'RefTime(UTC)': hosc_final,                                  # Col A
             'VCDU': vcdu_ref,                                            # Col B
@@ -477,7 +491,7 @@ def generate_trending_report(nrt_df, output_path=None):
             'Rate(sec/cnt)': trend_rate,                                 # Col D
             'Drift(sec/^nct^2)': trend_drift,                            # Col E
             'day of yr': doy_decimal,                                    # Col F
-            'date time': dt_datetime,                                         # Col G
+            'date time': dt_datetime,                                    # Col G
             '1-day rate': formula_1day,                                  # Col H (Live Formula)
             '30-min rate': formula_30min,                                # Col I (Live Formula)
             'Data generated using CLKFILES.exe and input from': np.nan,  # Col J 
@@ -486,9 +500,13 @@ def generate_trending_report(nrt_df, output_path=None):
             'Comment 5': np.nan,                                         # Col M
             '1-day rate squared': formula_1day_sq                        # Col N (Live Formula)
         })
+        added_count += 1
 
     new_df = pd.DataFrame(new_rows)
+
+    # Pre-exit check: Output directly to the console if no new data was logged
     if new_df.empty:
+        print(f"[UI] No new data to append. {skipped_count} overlapping entries were skipped. Trending report is already up to date.")
         return new_df
 
     # 3. Safely APPEND the new data directly to the existing Excel file and COPY FORMATTING
@@ -498,27 +516,29 @@ def generate_trending_report(nrt_df, output_path=None):
                 with pd.ExcelWriter(output_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
                     sheet_name = list(writer.sheets.keys())[0] if writer.sheets else 'Sheet1'
                     ws = writer.sheets[sheet_name]
-                    
+
                     # Drop the new data in
                     new_df.to_excel(writer, sheet_name=sheet_name, startrow=current_max_row, index=False, header=False)
-                    
+
                     # --- APPLY FORMATTING ---
                     if current_max_row >= 2:
                         for col_idx in range(1, len(new_df.columns) + 1):
                             src_cell = ws.cell(row=current_max_row, column=col_idx)
-                            
+
                             for row_offset in range(1, len(new_df) + 1):
                                 tgt_cell = ws.cell(row=current_max_row + row_offset, column=col_idx)
-                                tgt_cell.font = copy(src_cell.font)
-                                tgt_cell.border = copy(src_cell.border)
-                                tgt_cell.fill = copy(src_cell.fill)
-                                tgt_cell.number_format = copy(src_cell.number_format)
-                                tgt_cell.alignment = copy(src_cell.alignment)
+                                
+                                # Use safe copying to avoid strict OpenPyXL validation errors
+                                if src_cell.font: tgt_cell.font = copy(src_cell.font)
+                                if src_cell.border: tgt_cell.border = copy(src_cell.border)
+                                if src_cell.fill: tgt_cell.fill = copy(src_cell.fill)
+                                if src_cell.number_format: tgt_cell.number_format = copy(src_cell.number_format)
+                                if src_cell.alignment: tgt_cell.alignment = copy(src_cell.alignment)
 
-                log_callback(f"Trending report safely appended {len(new_df)} rows. Saved to {output_path.name}")
+                print(f"[UI] Trending report safely appended {len(new_df)} new rows (Skipped {skipped_count} duplicates). Saved to {output_path.name}")
             else:
                 new_df.to_excel(output_path, index=False)
-                log_callback(f"Trending report successfully created. Saved to {output_path.name}")
+                print(f"[UI] Trending report successfully created with {len(new_df)} rows. Saved to {output_path.name}")
 
         except PermissionError:
             print("[ERROR] Could not write to Excel file. Is the spreadsheet currently open in Excel?")

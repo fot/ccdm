@@ -13,9 +13,11 @@ from PyQt6.QtGui import QAction, QTextCursor
 from PyQt6.QtCore import Qt
 
 # Local Imports
-from workers import ConsoleStream, SFTPWorker, PipelineWorker, SFTP_CONFIG_PATH
+from workers import (ConsoleStream, SFTPWorker, PipelineWorker, SFTP_CONFIG_PATH)
+from data_parsing import parse_sto_contacts, parse_sto_file
 from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog, 
-                     BinaryExportDialog, ErpSourceDialog, NrtSourceDialog)
+                     BinaryExportDialog, ErpSourceDialog, NrtSourceDialog,
+                     StoContactSelectionDialog)
 from binary_convert import convert_dis_file, convert_dat_file
 from reports import (generate_trending_report, generate_correlation_report,
                      get_correlation_report_title, update_html_table)
@@ -26,13 +28,17 @@ class ClockDriftApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Clock Correlation Tool")
-        self.resize(950, 750)
+        self.resize(1200, 800)
 
         self.erp_file = None
         self.nrt_files = []
+        self.sto_file = None
         self.maude_range = None
+        self.telemetry_df = None
         self.nrt_df = None
-        self.base_out_dir = ""
+
+        # Establishes default root for output folders and ledger tracking
+        self.base_out_dir = "//noodle/fot/engineering/ccdm/Clock_Timing/Clock Correlation Output"
         self.out_dir = ""
         self.output_buttons = []
         self.legacy_mode = False
@@ -103,7 +109,7 @@ class ClockDriftApp(QMainWindow):
         nrt_layout.setContentsMargins(0, 0, 0, 0)
         nrt_layout.setSpacing(2)
         
-        nrt_layout.addWidget(QLabel("<b>Active Telemetry Queue (NRT / MAUDE):</b>"))
+        nrt_layout.addWidget(QLabel("<b>Active Telemetry Queue:</b>"))
         
         self.list_nrt_files = QListWidget()
         self.list_nrt_files.setMinimumHeight(160)
@@ -205,7 +211,8 @@ class ClockDriftApp(QMainWindow):
 
     def check_ready_state(self):
         has_erp = self.erp_file is not None
-        has_data = len(self.nrt_files) > 0 or self.maude_range is not None
+        has_data = len(self.nrt_files) > 0 or self.maude_range is not None or self.telemetry_df is not None
+        
         if has_erp and has_data:
             self.btn_run.setEnabled(True)
         else:
@@ -235,11 +242,13 @@ class ClockDriftApp(QMainWindow):
             self.setup_run_output_directory()
 
     def setup_run_output_directory(self):
+        """Builds the nested /YYYY/rclkout_YY_DDD_DDD structure."""
         if not self.base_out_dir:
             return
 
         now = datetime.now(timezone.utc)
         yy_str = now.strftime("%y")
+        yyyy_str = now.strftime("%Y")
         jday_str = now.strftime("%j")
         start_str = jday_str
         end_str = jday_str
@@ -261,6 +270,7 @@ class ClockDriftApp(QMainWindow):
                     t_min = pd.to_datetime(self.nrt_df.iloc[:, 0]).min()
                     t_max = pd.to_datetime(self.nrt_df.iloc[:, 0]).max()
                 
+                yyyy_str = t_min.strftime("%Y")
                 yy_str = t_min.strftime("%y")
                 start_str = t_min.strftime("%j")
                 end_str = t_max.strftime("%j")
@@ -268,7 +278,10 @@ class ClockDriftApp(QMainWindow):
                 pass
 
         sub_dir_name = f"rclkout_{yy_str}_{start_str}_{end_str}"
-        sub_path = Path(self.base_out_dir) / sub_dir_name
+
+        # Inject the /YYYY/ parent directory
+        year_path = Path(self.base_out_dir) / yyyy_str
+        sub_path = year_path / sub_dir_name
         sub_path.mkdir(parents=True, exist_ok=True)
         
         self.out_dir = str(sub_path)
@@ -303,7 +316,6 @@ class ClockDriftApp(QMainWindow):
         with open(SFTP_CONFIG_PATH, 'r') as f:
             cfg = json.load(f)
 
-        # UI label update for loading state
         self.lbl_erp_path.setText("Downloading from Lucky...")
         self.lbl_erp_path.setStyleSheet("color: #f39c12; font-weight: bold; font-style: italic;")
 
@@ -328,12 +340,15 @@ class ClockDriftApp(QMainWindow):
         QMessageBox.critical(self, "SFTP Error", err)
 
     def open_nrt_dialog(self):
+        """Routes the user to their chosen telemetry input method."""
         dialog = NrtSourceDialog(self)
         if dialog.exec():
             if dialog.selection == 'local':
                 self.select_nrt_files()
             elif dialog.selection == 'maude':
                 self.open_maude_dialog()
+            elif dialog.selection == 'sto':
+                self.open_sto_parser()
 
     def select_nrt_files(self):
         default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/NRTFiles")
@@ -358,6 +373,61 @@ class ClockDriftApp(QMainWindow):
             maude_str = f"MAUDE Query: {start_dt.toString('yyyy-MM-dd HH:mm:ss')} to {end_dt.toString('yyyy-MM-dd HH:mm:ss')}"
             self.list_nrt_files.addItem(maude_str)
             print(f"[UI] {maude_str} queued for extraction.")
+            self.check_ready_state()
+
+    def open_sto_parser(self):
+        """Loads STO data, locates the yearly JSON ledger, and slices the cumulative dataframe."""
+        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/STOFiles")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Master Telemetry File (.STO)",
+            str(default_dir),
+            "Telemetry Files (*.sto);;All Files (*.*)"
+        )
+        self.sto_file = file_path
+
+        if not file_path:
+            return
+
+        print(f"[UI] Parsing master telemetry file: {Path(file_path).name}")
+        
+        try:
+            sto_df = parse_sto_file(file_path)
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"Failed to read file: {e}")
+            return
+
+        supports = parse_sto_contacts(sto_df, time_col='datetime')
+        
+        if not supports:
+            QMessageBox.information(self, "No Contacts", "No physical supports >= 2.0 minutes were found.")
+            return
+
+        # Determine the target year directory for the contact_history ledger
+        data_year = sto_df['datetime'].min().strftime("%Y")
+        history_file = Path(self.base_out_dir) / data_year / "contact_history.json"
+
+        dialog = StoContactSelectionDialog(supports, history_file, self)
+
+        if dialog.exec():
+            combined_mask = pd.Series(False, index=sto_df.index)
+            num_extracts = len(dialog.selected_windows)
+
+            # Format multi-line list widget string
+            display_strs = [f"STO Extracts ({num_extracts}):"]
+
+            for i, (w_start, w_end) in enumerate(dialog.selected_windows):
+                combined_mask |= (sto_df['datetime'] >= w_start) & (sto_df['datetime'] < w_end)
+                display_strs.append(f"{i+1}) {w_start.strftime('%Y:%j %H:%M')} to {w_end.strftime('%H:%M')}")
+
+            self.telemetry_df = sto_df.loc[combined_mask].copy()
+
+            if 'time_diff' in self.telemetry_df.columns:
+                self.telemetry_df = self.telemetry_df.drop(columns=['time_diff', 'support_id'])
+
+            summary_str = "\n".join(display_strs)
+            self.list_nrt_files.addItem(summary_str)
+            print(f"[UI] {num_extracts} support(s) queued for processing.")
+
             self.check_ready_state()
 
     def view_calibration_file(self, filename):
@@ -386,7 +456,8 @@ class ClockDriftApp(QMainWindow):
         if self.legacy_mode:
             print("[UI] Execution configured for Legacy Mode overrides.")
 
-        self.worker = PipelineWorker(self.erp_file, self.nrt_files, self.legacy_mode)
+        # Pass the extracted telemetry dataframe directly into the worker queue
+        self.worker = PipelineWorker(self.erp_file, self.nrt_files, self.legacy_mode, telemetry_df=self.telemetry_df)
         self.worker.finished.connect(self.on_calculation_finished)
         self.worker.error.connect(self.on_calculation_error)
         self.worker.start()
@@ -451,12 +522,10 @@ class ClockDriftApp(QMainWindow):
 
     def generate_trending(self, autorun=False):
         trend_dir = Path("//noodle/fot/users/rhoover/Clock Tool Development Files")
-        # trend_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/Clock Rate Trending_files")
 
         try:
             if autorun:
                 file_path = trend_dir / "Clock Rate Trending (Test).xlsx"
-                # file_path = trend_dir / "Clock Rate Trending (Data Only).xlsx"
             else:
                 box = QMessageBox(self)
                 box.setWindowTitle("Trending Report Destination")
@@ -495,7 +564,8 @@ class ClockDriftApp(QMainWindow):
                                                            "Text Files (*.txt)")
 
             if file_path:
-                generate_correlation_report(self.nrt_df, self.nrt_files, self.erp_file, Path(file_path).parent)
+                generate_correlation_report(self.nrt_df, self.nrt_files,
+                                            self.erp_file, self.sto_file, Path(file_path).parent)
             print(f"[UI] Correlation report successfully generated.")
         except Exception as e:
             print(f"[ERROR] Correlation report generation failed: {e}")
@@ -520,22 +590,21 @@ class ClockDriftApp(QMainWindow):
     def update_html_record_table(self):
         try:
             now = datetime.now(timezone.utc)
-            # inputpath = Path("//noodle/vweb/fot_web/eng/subsystems/ccdm/Clock_Rate")
             inputpath = Path("//noodle/fot/users/rhoover/Clock Tool Development Files")
-            update_html_table(self.nrt_df, inputpath / f"Clock_Correlation{now.strftime("%Y")}.htm")
+            update_html_table(self.nrt_df, inputpath / f"Clock_Correlation{now.strftime('%Y')}.htm")
             print(f"[UI] HTML Table successfully updated.")
         except Exception as e:
             print(f"[ERROR] HTML table update failed: {e}")
 
     def run_all_outputs(self):
         try:
-            print(f"\n[UI] Executing batch output generation to {Path(self.out_dir)}...\n")
+            print(f"[UI] Executing batch output generation to {Path(self.out_dir)}...")
 
-            self.export_binaries() # Run Export Binaries
-            self.generate_trending(autorun=True) # Run Trending XLSX Export
-            self.generate_correlation(autorun=True) # Run Correlation Report
-            self.generate_plot(autorun=True) # Run Residual Plot
-            self.update_html_record_table() # Run HTML Table Update
+            self.export_binaries()
+            self.generate_trending(autorun=True)
+            self.generate_correlation(autorun=True)
+            self.generate_plot(autorun=True)
+            self.update_html_record_table()
 
             print("[UI] Batch output generation complete.")
         except Exception as e:
@@ -547,7 +616,7 @@ class ClockDriftApp(QMainWindow):
         if file_path:
             try:
                 self.nrt_df.to_csv(file_path, index=False)
-                print(f"[UI] Raw DataFrame exported to {file_path}")
+                print(f"[UI] Raw Data exported to {file_path}")
             except Exception as e:
                 print(f"[ERROR] CSV Export failed: {e}")
 

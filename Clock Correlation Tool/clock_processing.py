@@ -6,8 +6,7 @@ from astropy import units as u
 
 # Local Imports
 from misc import (
-    get_constants, load_calib_database, parse_erp_file,
-    parse_nrt_file, log_callback, is_consecutive_check
+    get_constants, load_calib_database, log_callback, is_consecutive_check
 )
 from math_functions import (get_ground_station_position,
                             ephemeris_interpolator, two_pass_coefficient_solver)
@@ -23,84 +22,60 @@ EPOCH_OFFSET_1958_TO_1985 = constants['EPOCH_OFFSET_1958_TO_1985']
 # ---------------------------------------------------------
 # MAIN PIPELINE
 # ---------------------------------------------------------
-def calculate_clock_drift(erp_path, nrt_paths, legacy_mode=True):
+def calculate_clock_drift(erp_df, nrt_df, legacy_mode=True):
     """
-    Main driver for parsing telemetry and ephemeris files, applying delays,
-    and executing daily and weekly trending routines.
+    Main driver for applying delays and executing daily/weekly 
+    trending routines against fully parsed DataFrames.
     """
     if legacy_mode:
         log_callback(f"--- Starting Clock Correlation (Legacy Mode: {legacy_mode}) ---")
     else:
         log_callback(f"--- Starting Clock Correlation ---")
 
-    # Parse Ephemeris
-    erp_df = parse_erp_file(erp_path)
+    # Extract Ephemeris Arrays
     erp_times = erp_df['abs_time'].values
     erp_positions = erp_df[['pos-x', 'pos-y', 'pos-z']].values
     erp_velocities = erp_df[['vel-x', 'vel-y', 'vel-z']].values
 
-    # Parse Telemetry & Dynamically Apply Format-Dependent Hardware Delays
+    # Load Hardware Delay Calibration Matrix
     calib_db = load_calib_database(Path(__file__).parent.resolve() / "calibration_data.json")
-
-    # --- Convert the nested dictionary into a DataFrame before the loop ---
-    # orient='index' turns the dictionary keys into row indices
     calib_df = pd.DataFrame.from_dict(calib_db, orient='index')
     calib_df.index.name = 'bit_rate_code'
-    calib_df = calib_df.reset_index() # Moves 'bit_rate_code' to a standard column
+    calib_df = calib_df.reset_index()
 
-    nrt_dataframes = []
-
-    for path in nrt_paths:
-        df = parse_nrt_file(path)
-
-        # Ensure the rate codes are strings to match the JSON/calib_df keys
-        df['bit_rate_code'] = df['bit_rate_code'].astype(str)
-
-        # --- NEW: Vectorized Left Merge ---
-        # Matches rows on 'bit_rate_code' and pulls in 'internal_delay' and 'sync_delay'
-        df = df.merge(calib_df, on='bit_rate_code', how='left')
-
-        # Safely fill any NaN values with 0.0 (mimics the old .get(key, 0.0) fallback)
-        df['internal_delay'] = df['internal_delay'].fillna(0.0)
-        df['sync_delay'] = df['sync_delay'].fillna(0.0)
-
-        # Assign the merged chunk to the list
-        nrt_dataframes.append(df)
-
-    # Concatenate and Sort Telemetry
-    nrt_df = pd.concat(nrt_dataframes, ignore_index=True)
+    # Dynamically Apply Format-Dependent Hardware Delays across the entire dataframe
+    if 'bit_rate_code' in nrt_df.columns:
+        nrt_df['bit_rate_code'] = nrt_df['bit_rate_code'].astype(str)
+        nrt_df = nrt_df.merge(calib_df, on='bit_rate_code', how='left')
+        nrt_df['internal_delay'] = nrt_df['internal_delay'].fillna(0.0)
+        nrt_df['sync_delay'] = nrt_df['sync_delay'].fillna(0.0)
+    else:
+        # Fallback if processing generalized STO data lacking standard rate codes
+        nrt_df['internal_delay'] = nrt_df.get('internal_delay', 0.0)
+        nrt_df['sync_delay'] = nrt_df.get('sync_delay', 0.0)
 
     # Sort by datetime before processing rollovers.
     nrt_df = nrt_df.sort_values(by='datetime').reset_index(drop=True)
     log_callback(f"Telemetry data concatenated and sorted by datetime. Total records: {len(nrt_df)}")
 
     # Unwrap VCDU rollovers into new column
-    nrt_df['corrected_vcdu'] = nrt_df['vcdu'].astype(np.float64) # init column as np.float64
+    nrt_df['corrected_vcdu'] = nrt_df['vcdu'].astype(np.float64)
     rollover_indices = np.where(np.diff(nrt_df['corrected_vcdu']) < -1000000)[0]
 
-    for idx in rollover_indices: # populate with new corrected values
+    for idx in rollover_indices:
         nrt_df.loc[idx + 1:, 'corrected_vcdu'] += 2**24
 
-    # Remove duplicate entries in the nrt_df (duplicates vcdu values sometimes happen due to tlm dropouts)
-    # nrt_df = nrt_df.drop_duplicates(subset=['corrected_vcdu'], keep='first')
-
-    # Sort by corrected_vcdu to preserve the chronological rollover event
     nrt_df = nrt_df.sort_values(by='corrected_vcdu').reset_index(drop=True)
 
-    # Now calculate absolute continuous time
+    # Calculate absolute continuous time
     raw_counter_sec = ((nrt_df['num_days'] * 86400.0) + (nrt_df['num_ms'] / 1000.0) + (nrt_df['num_us_frac'] / 1000000.0)).values
 
-    # Initialize Astropy Time object in TAI scale anchored to 1958-01-01
     epoch_1958 = Time('1958-01-01 00:00:00', scale='tai')
     astropy_times = epoch_1958 + raw_counter_sec * u.s
 
-    # For legacy mode matching (seconds from 1985 epoch)
     epoch_1985 = Time('1985-01-01 00:00:00', scale='tai')
-
-    # Perform vector math directly on the Astropy array to extract numpy seconds
     abs_times = (astropy_times - epoch_1985).sec
 
-    # Assign clean data to the DataFrame columns
     nrt_df['astropy_time'] = astropy_times
     nrt_df['abs_time'] = abs_times
 
@@ -133,11 +108,10 @@ def calculate_clock_drift(erp_path, nrt_paths, legacy_mode=True):
                          ) / C_KM_S
     nrt_df['light_time'] = light_time
 
-    # Smart Pass Batching (Groups by continuous passes > 1hr gaps)
+    # Smart Pass Batching
     time_gaps = np.diff(ert_times, prepend=ert_times[0])
     nrt_df['pass_id'] = (time_gaps > 3600).cumsum()
 
-    # nrt_df order check of corrected_vcdu list
     is_consecutive_check(nrt_df)
 
     # 5. Execute Trending Pipelines
@@ -243,7 +217,7 @@ def weekly_trending(nrt_df):
     nrt_df['global_std_dev_drift'] = global_std_devs[2]
 
     # --- OUTPUT LOGGING ---
-    ref_time = nrt_df['datetime'].iloc[0].strftime('%Y:%j:%H:%M:%S.%f')
+    ref_time = nrt_df['astropy_time'].iloc[0].strftime('%Y:%j:%H:%M:%S.%f')
     ref_count = nrt_df['corrected_vcdu'].iloc[0]
     span_days = (nrt_df['astropy_time'].iloc[-1] - nrt_df['astropy_time'].iloc[0]).sec / 86400.0
 

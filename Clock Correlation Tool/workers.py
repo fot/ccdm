@@ -2,6 +2,7 @@ import sys
 import json
 from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
+import pandas as pd
 
 try:
     import paramiko
@@ -29,11 +30,12 @@ class SFTPWorker(QThread):
     error = pyqtSignal(str)
     log = pyqtSignal(str)
 
-    def __init__(self, remote_dir, file_ext, dest_dir=None):
+    def __init__(self, remote_dir, file_ext, dest_dir=None, file_prefix=None):
         super().__init__()
         self.remote_dir = remote_dir
         self.file_ext = file_ext
         self.dest_dir = dest_dir
+        self.file_prefix = file_prefix
 
     def run(self):
         if not PARAMIKO_AVAILABLE:
@@ -48,7 +50,7 @@ class SFTPWorker(QThread):
             with open(SFTP_CONFIG_PATH, 'r') as f:
                 cfg = json.load(f)
 
-            self.log.emit(f"Connecting to SFTP server {cfg.get('host')}...")
+            self.log.emit(f"[UI] Connecting to SFTP server {cfg.get('host')}...\n")
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             
@@ -64,26 +66,35 @@ class SFTPWorker(QThread):
             ssh.connect(**connect_kwargs)
             sftp = ssh.open_sftp()
 
-            self.log.emit(f"Scanning remote directory: {self.remote_dir}")
+            self.log.emit(f"[UI] Scanning remote directory: {self.remote_dir}\n")
             latest_time = 0
             latest_file = None
 
             for attr in sftp.listdir_attr(self.remote_dir):
-                if attr.filename.lower().endswith(self.file_ext.lower()):
+                filename_lower = attr.filename.lower()
+
+                # Check extension
+                if filename_lower.endswith(self.file_ext.lower()):
+
+                    # Check prefix if one was provided
+                    if self.file_prefix and not filename_lower.startswith(self.file_prefix.lower()):
+                        continue 
+
+                    # Find the newest matching file
                     if attr.st_mtime > latest_time:
                         latest_time = attr.st_mtime
                         latest_file = attr.filename
 
             if not latest_file:
-                raise FileNotFoundError(f"No {self.file_ext} files found in {self.remote_dir}")
+                raise FileNotFoundError(f"[UI] No {self.file_ext} files matching criteria found in {self.remote_dir}\n")
 
-            self.log.emit(f"Found latest file: {latest_file}. Downloading...")
+            self.log.emit(f"[UI] Found latest file: {latest_file}. Downloading...\n")
 
             if self.dest_dir:
                 cache_dir = Path(self.dest_dir)
             else:
                 cache_dir = Path.home() / ".sftp_cache"
-                
+
             cache_dir.mkdir(parents=True, exist_ok=True)
             local_path = cache_dir / latest_file
 
@@ -102,17 +113,40 @@ class PipelineWorker(QThread):
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, erp_file, nrt_files, legacy_mode=False):
+    def __init__(self, erp_file, nrt_files, legacy_mode=False, telemetry_df=None):
         super().__init__()
         self.erp_file = erp_file
         self.nrt_files = nrt_files
         self.legacy_mode = legacy_mode
+        self.telemetry_df = telemetry_df
 
     def run(self):
         try:
+            from data_parsing import parse_erp_file, parse_nrt_file
             from clock_processing import calculate_clock_drift
-            nrt_df = calculate_clock_drift(self.erp_file, self.nrt_files, legacy_mode=self.legacy_mode)
-            self.finished.emit(nrt_df)
+            
+            # 1. Parse Ephemeris Data
+            erp_df = parse_erp_file(self.erp_file)
+            
+            # 2. Parse all NRT paths and concatenate with any pre-sliced telemetry
+            nrt_dataframes = []
+            
+            if self.telemetry_df is not None:
+                nrt_dataframes.append(self.telemetry_df)
+                
+            for path in self.nrt_files:
+                nrt_dataframes.append(parse_nrt_file(path))
+                
+            if not nrt_dataframes:
+                raise ValueError("No telemetry data was provided to process.")
+                
+            nrt_df = pd.concat(nrt_dataframes, ignore_index=True)
+
+            # 3. Execute Processing Logic using pure DataFrames
+            result_df = calculate_clock_drift(erp_df, nrt_df, legacy_mode=self.legacy_mode)
+            
+            self.finished.emit(result_df)
+            
         except Exception as e:
             import traceback
             self.error.emit(f"{str(e)}\n{traceback.format_exc()}")

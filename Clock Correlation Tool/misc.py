@@ -1,9 +1,6 @@
 from pathlib import Path
 import json
 from datetime import datetime
-from astropy.time import Time
-import pandas as pd
-import numpy as np
 
 
 def get_constants():
@@ -70,74 +67,3 @@ def is_consecutive_check(df):
         # Log the specific failing indices and their values for debugging
         error_details = failed_rows[['pass_id', 'corrected_vcdu']].to_string()
         log_callback(f"Sequence broken at these rows:\n{error_details}")
-
-
-def nrt_keep_data(item):
-    if ':' in item:
-        return True
-    try:
-        np.float32(item)
-        return True
-    except ValueError:
-        return False
-
-
-def parse_erp_file(filepath):
-    data = []
-    epoch_1958_tai = Time("1985-01-01 00:00:00", scale="tai")
-
-    with open(filepath, 'r') as f:
-        for line in f:
-            parts = line.split()
-            if len(parts) == 7 and ':' in parts[0] and parts[0][:4].isdigit():
-                # Parse the standard UTC datetime string from the file
-                dt = datetime.strptime(parts[0], "%Y:%j:%H:%M:%S.%f")
-
-                # 2. Convert standard datetime to an Astropy UTC object
-                t_utc = Time(dt, scale="utc")
-
-                # 3. Calculate true elapsed seconds since 1958 in TAI
-                # This automatically applies all historical leap seconds.
-                abs_time = (t_utc.tai - epoch_1958_tai).sec
-
-                data.append({
-                    'datetime': dt,
-                    'abs_time': abs_time,  # Unified Physics Epoch (leap-second corrected)
-                    'pos-x': np.float64(parts[1]),
-                    'pos-y': np.float64(parts[2]),
-                    'pos-z': np.float64(parts[3]),
-                    'vel-x': np.float64(parts[4]),
-                    'vel-y': np.float64(parts[5]),
-                    'vel-z': np.float64(parts[6])
-                })
-
-    log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
-    return pd.DataFrame(data)
-
-
-def parse_nrt_file(filepath):
-    data = []
-    with open(filepath, 'r') as f:
-        for line in f:
-            parts = line.strip().split()
-            parts = [item for item in parts if nrt_keep_data(item)]
-
-            try:
-                # If the line doesn't have enough columns to contain CIUMBITR, skip it
-                if (int(parts[6]) != 6):
-                    continue
-
-                data.append({
-                    'datetime': datetime.strptime(parts[0], "%Y:%j:%H:%M:%S"),
-                    'vcdu': int(parts[1]),               # VCDU count (should be corrected for rollovers later)
-                    'num_days': int(parts[2]),           # number of days since epoch
-                    'num_ms': int(parts[3]),             # number of milliseconds in the current day
-                    'num_us_frac': int(parts[4]),        # microsecond fraction in current millisecond
-                    'dss_id': int(parts[5]),             # DSS station ID number
-                    'bit_rate_code': int(parts[6]),      # Code number of bit rate of the data
-                    'measured_bit_rate': np.float32(parts[7]) # Measured bit rate (should be close to the nominal bit rate)
-                })
-            except (IndexError, ValueError):
-                continue
-    log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
-    return pd.DataFrame(data)
