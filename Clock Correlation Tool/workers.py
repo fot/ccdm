@@ -4,6 +4,8 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 import pandas as pd
 
+from data_parsing import parse_sto_file
+
 try:
     import paramiko
     PARAMIKO_AVAILABLE = True
@@ -53,7 +55,7 @@ class SFTPWorker(QThread):
             self.log.emit(f"[UI] Connecting to SFTP server {cfg.get('host')}...\n")
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
+
             connect_kwargs = {
                 "hostname": cfg.get('host'),
                 "port": int(cfg.get('port', 22)),
@@ -124,29 +126,64 @@ class PipelineWorker(QThread):
         try:
             from data_parsing import parse_erp_file, parse_nrt_file
             from clock_processing import calculate_clock_drift
-            
+
             # 1. Parse Ephemeris Data
             erp_df = parse_erp_file(self.erp_file)
-            
+
             # 2. Parse all NRT paths and concatenate with any pre-sliced telemetry
             nrt_dataframes = []
-            
+
             if self.telemetry_df is not None:
                 nrt_dataframes.append(self.telemetry_df)
-                
+
             for path in self.nrt_files:
                 nrt_dataframes.append(parse_nrt_file(path))
-                
+
             if not nrt_dataframes:
                 raise ValueError("No telemetry data was provided to process.")
-                
+
             nrt_df = pd.concat(nrt_dataframes, ignore_index=True)
 
             # 3. Execute Processing Logic using pure DataFrames
             result_df = calculate_clock_drift(erp_df, nrt_df, legacy_mode=self.legacy_mode)
-            
+
             self.finished.emit(result_df)
-            
+
         except Exception as e:
             import traceback
             self.error.emit(f"{str(e)}\n{traceback.format_exc()}")
+
+
+class StoParserWorker(QThread):
+    """Background worker to parse massive STO files without freezing the main GUI."""
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(object)  # Emits the parsed DataFrame
+    error = pyqtSignal(str)
+
+    def __init__(self, filepath):
+        super().__init__()
+        self.filepath = filepath
+        self._is_cancelled = False
+
+    def cancel(self):
+        """Flag the loop to abort on the next iteration."""
+        self._is_cancelled = True
+
+    def run(self):
+        try:
+            # Pass our local update method as the callback to the parser
+            df = parse_sto_file(self.filepath, progress_callback=self.update_progress)
+
+            # Only emit finished if it completed naturally
+            if not self._is_cancelled:
+                self.finished.emit(df)
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def update_progress(self, val):
+        """Emits the progress back to the main thread. Returns False to abort if cancelled."""
+        if self._is_cancelled:
+            return False
+        self.progress.emit(val)
+        return True

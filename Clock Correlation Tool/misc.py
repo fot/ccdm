@@ -1,5 +1,6 @@
-from pathlib import Path
 import json
+import re
+from pathlib import Path
 from datetime import datetime
 
 
@@ -67,3 +68,12 @@ def is_consecutive_check(df):
         # Log the specific failing indices and their values for debugging
         error_details = failed_rows[['pass_id', 'corrected_vcdu']].to_string()
         log_callback(f"Sequence broken at these rows:\n{error_details}")
+
+def get_incremented_clkhst_name(filepath):
+                    p = Path(filepath)
+                    match = re.match(r"(CLKHST_)(\d+)", p.stem, re.IGNORECASE)
+                    if match:
+                        prefix = match.group(1).upper()
+                        num = int(match.group(2))
+                        return f"{prefix}{num + 1}{p.suffix.upper()}"
+                    return f"NEW_{p.name}"

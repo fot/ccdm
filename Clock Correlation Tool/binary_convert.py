@@ -219,15 +219,15 @@ def dat_file_to_dataframe(filepath):
 def dataframe_to_dis_file(df, init_length, inputdir, outputdir):
     HEADER_SIZE = 38
     RECORD_SIZE = 175
-    
+
     # --- 1. EXTRACT ORIGINAL HEADER & CALCULATE NEW SIZES ---
     with open(inputdir, 'rb') as orig_file:
         orig_header_data = orig_file.read(HEADER_SIZE)
         orig_header_text = orig_header_data.decode('ascii', errors='ignore')
         orig_values = orig_header_text.split()
-    
+
     orig_record_count = int(orig_values[1])
-    orig_data_byte_size = int(orig_values[3]) 
+    orig_data_byte_size = int(orig_values[3])
 
     new_record_count = len(df)
     new_data_byte_size = HEADER_SIZE + (new_record_count * RECORD_SIZE)
@@ -261,7 +261,7 @@ def dataframe_to_dis_file(df, init_length, inputdir, outputdir):
                 key_val = "C          "
             key_bytes = str(key_val).ljust(11)[:11].encode('ascii')
             time_bytes = str(row['odb_clock_base_ref']).ljust(21)[:21].encode('ascii')
-            
+
             full_record = prefix + payload + key_bytes + time_bytes + b"\x00"
             outfile.write(full_record)
 
@@ -309,7 +309,7 @@ def dataframe_to_dat_file(df, init_length, inputdir, outputdir):
                 row['odb_clock_ref_cnts'], row['odb_clock_ref_gmt'],
                 std_dev[0], std_dev[1], std_dev[2], std_dev[3], 
                 row['odb_clock_rate'], row['odb_clock_drift'], row['odb_clock_der_drift'],
-                errtime[0], errtime[1], errtime[2],             
+                errtime[0], errtime[1], errtime[2],
                 row['odb_clock_variance'], int(row['odb_clock_majfm_cnt']),
                 row['odb_clock_majfm_utc'], int(row['odb_clock_key'])
             )
@@ -321,7 +321,7 @@ def dataframe_to_dat_file(df, init_length, inputdir, outputdir):
             time_bytes = str(row['odb_clock_base_ref']).ljust(21)[:21].encode('ascii')
 
             # Pad with a null byte and a newline character to perfectly hit 170 bytes
-            full_record = payload + key_bytes + time_bytes + b"\x00\n"
+            full_record = payload + key_bytes + time_bytes + b"\x00\x00"
             outfile.write(full_record)
             record_count += 1
 

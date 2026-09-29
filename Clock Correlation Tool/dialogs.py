@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 from datetime import timedelta
 from PyQt6.QtGui import QColor, QBrush
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLabel, QFileDialog, QTextEdit, QMessageBox, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+                             QLabel, QFileDialog, QTextEdit, QMessageBox,
                              QDateTimeEdit, QFormLayout, QGroupBox, QLineEdit, QWidget,
                              QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 from PyQt6.QtCore import QDateTime, QTime, Qt
@@ -27,10 +27,10 @@ class SFTPConfigDialog(QDialog):
         self.txt_user = QLineEdit()
         self.txt_pass = QLineEdit()
         self.txt_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        
+
         self.txt_erp_dir = QLineEdit()
         self.txt_bin_dir = QLineEdit()
-        
+
         self.load_config()
 
         layout.addRow("Config File Location:", self.txt_host_path)
@@ -40,16 +40,16 @@ class SFTPConfigDialog(QDialog):
         layout.addRow("Password/Key Passphrase:", self.txt_pass)
         layout.addRow("Remote ERP Folder:", self.txt_erp_dir)
         layout.addRow("Remote Binary DB Folder:", self.txt_bin_dir)
-        
+
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("Save Settings")
         self.btn_save.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold;")
         self.btn_save.clicked.connect(self.save_config)
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_save)
-        
+
         layout.addRow(btn_layout)
-        
+
     def load_config(self):
         if self.config_path.exists():
             with open(self.config_path, 'r') as f:
@@ -563,3 +563,60 @@ class BinaryExportDialog(QDialog):
         self.lbl_status.setText(f"Error: {err}")
         self.btn_sftp_dat.setText("Pull Latest (SFTP)")
         self.btn_sftp_dat.setEnabled(True)
+
+
+class EmailPreviewDialog(QDialog):
+    """Dialog to preview and save a draft email with plot attachments."""
+    def __init__(self, subject, body, attachment_path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Email Draft Preview")
+        self.resize(600, 500)
+
+        # Address Variables
+        self.sender_email = "rhoover@ipa.cfa.harvard.edu"
+        self.recipient_email = "chandra_clock@head.cfa.harvard.edu"
+
+        layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+
+        self.txt_from = QLineEdit(self.sender_email)
+        self.txt_to = QLineEdit(self.recipient_email)
+        self.txt_subject = QLineEdit(subject)
+
+        self.txt_attach = QLineEdit(str(attachment_path) if attachment_path else "None Found")
+        self.txt_attach.setReadOnly(True)
+        if not attachment_path:
+            self.txt_attach.setStyleSheet("color: #e74c3c; font-style: italic;")
+
+        form_layout.addRow("From:", self.txt_from)
+        form_layout.addRow("To:", self.txt_to)
+        form_layout.addRow("Subject:", self.txt_subject)
+        form_layout.addRow("Attachment:", self.txt_attach)
+        layout.addLayout(form_layout)
+
+        self.txt_body = QTextEdit()
+        self.txt_body.setPlainText(body)
+        layout.addWidget(QLabel("<b>Body:</b>"))
+        layout.addWidget(self.txt_body)
+
+        btn_layout = QHBoxLayout()
+        self.btn_save = QPushButton("Save Draft (Send Later)")
+        self.btn_save.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
+        self.btn_save.clicked.connect(self.accept)
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_cancel)
+        btn_layout.addWidget(self.btn_save)
+        layout.addLayout(btn_layout)
+
+    def get_email_data(self):
+        return {
+            "from": self.txt_from.text(),
+            "to": self.txt_to.text(),
+            "subject": self.txt_subject.text(),
+            "body": self.txt_body.toPlainText(),
+            "attachment": self.txt_attach.text()
+        }

@@ -1,3 +1,4 @@
+import os
 from astropy.time import Time
 from datetime import datetime
 from pathlib import Path
@@ -11,7 +12,8 @@ def nrt_keep_data(item):
     if ':' in item:
         return True
 
-    if str(item).lower() in ["512k", "256k", "128k"]:
+    # Explicitly whitelist ALL expected string bitrates so they aren't deleted
+    if str(item).lower() in ["1024", "512k", "256k", "128k"]:
         return True
 
     try:
@@ -29,19 +31,13 @@ def parse_erp_file(filepath):
         for line in f:
             parts = line.split()
             if len(parts) == 7 and ':' in parts[0] and parts[0][:4].isdigit():
-                # Parse the standard UTC datetime string from the file
                 dt = datetime.strptime(parts[0], "%Y:%j:%H:%M:%S.%f")
-
-                # 2. Convert standard datetime to an Astropy UTC object
                 t_utc = Time(dt, scale="utc")
-
-                # 3. Calculate true elapsed seconds since 1958 in TAI
-                # This automatically applies all historical leap seconds.
                 abs_time = (t_utc.tai - epoch_1958_tai).sec
 
                 data.append({
                     'datetime': dt,
-                    'abs_time': abs_time,  # Unified Physics Epoch (leap-second corrected)
+                    'abs_time': abs_time,
                     'pos-x': np.float64(parts[1]),
                     'pos-y': np.float64(parts[2]),
                     'pos-z': np.float64(parts[3]),
@@ -61,35 +57,52 @@ def parse_nrt_file(filepath):
             parts = line.strip().split()
             parts = [item for item in parts if nrt_keep_data(item)]
 
+            if len(parts) < 8:
+                continue
+
             try:
-                # If the line doesn't have enough columns to contain CIUMBITR, skip it
                 if (int(parts[6]) != 6):
                     continue
 
                 data.append({
                     'datetime': datetime.strptime(parts[0], "%Y:%j:%H:%M:%S"),
-                    'vcdu': int(parts[1]),               # VCDU count (should be corrected for rollovers later)
-                    'num_days': int(parts[2]),           # number of days since epoch
-                    'num_ms': int(parts[3]),             # number of milliseconds in the current day
-                    'num_us_frac': int(parts[4]),        # microsecond fraction in current millisecond
-                    'dss_id': int(parts[5]),             # DSS station ID number
-                    'bit_rate_code': int(parts[6]),      # Code number of bit rate of the data
-                    'measured_bit_rate': np.float32(parts[7]) # Measured bit rate (should be close to the nominal bit rate)
+                    'vcdu': int(parts[1]),
+                    'num_days': int(parts[2]),
+                    'num_ms': int(parts[3]),
+                    'num_us_frac': int(parts[4]),
+                    'dss_id': int(parts[5]),
+                    'bit_rate_code': int(parts[6]),
+                    'measured_bit_rate': np.float32(parts[7])
                 })
             except (IndexError, ValueError):
                 continue
+
     log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
     return pd.DataFrame(data)
 
 
-def parse_sto_file(filepath):
+def parse_sto_file(filepath, progress_callback=None):
     """
-    Parses an STO file into a standardized dataframe,
-    mirroring the extraction pipeline for NRT files.
+    Parses a generic STO/NRT CSV file into a standardized dataframe.
+    Periodically yields progress percentages if a callback is provided.
     """
     data = []
+    total_bytes = os.path.getsize(filepath)
+    processed_bytes = 0
+
     with open(filepath, 'r') as f:
-        for line in f:
+        for count, line in enumerate(f):
+            processed_bytes += len(line)
+
+            if progress_callback and count % 2500 == 0:
+                progress_pct = int((processed_bytes / total_bytes) * 100)
+                if progress_pct >= 100:
+                    progress_pct = 99 
+
+                if progress_callback(progress_pct) is False:
+                    log_callback(f"Parsing of {Path(filepath).name} was cancelled by user.")
+                    return pd.DataFrame()
+
             parts = line.strip().split()
             parts = [item for item in parts if nrt_keep_data(item)]
 
@@ -97,21 +110,24 @@ def parse_sto_file(filepath):
                 continue
 
             try:
-                if str(parts[6].lower()) not in ["1024", "512k", "256k", "128k"]:
+                rate_str = str(parts[6]).lower()
+
+                if rate_str not in ["1024", "512k", "256k", "128k"]:
                     continue
 
                 data.append({
                     'datetime': datetime.strptime(parts[0], "%Y:%j:%H:%M:%S"),
-                    'vcdu': int(parts[1]),               # VCDU count (should be corrected for rollovers later)
-                    'num_days': int(parts[2]),           # number of days since epoch
-                    'num_ms': int(parts[3]),             # number of milliseconds in the current day
-                    'num_us_frac': int(parts[4]),        # microsecond fraction in current millisecond
-                    'dss_id': int(parts[5]),             # DSS station ID number
-                    'bit_rate_code': int(parts[6]),      # Code number of bit rate of the data
-                    'measured_bit_rate': np.float32(parts[7]) # Measured bit rate (should be close to the nominal bit rate)
+                    'vcdu': int(parts[1]),
+                    'num_days': int(parts[2]),
+                    'num_ms': int(parts[3]),
+                    'num_us_frac': int(parts[4]),
+                    'dss_id': int(parts[5]),
+                    'bit_rate_code': int(parts[6]),
+                    'measured_bit_rate': np.float32(parts[7])
                 })
             except (IndexError, ValueError):
                 continue
+
     log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
     return pd.DataFrame(data)
 
@@ -132,16 +148,14 @@ def parse_sto_contacts(df, time_col='datetime'):
         end_time = group[time_col].max()
         duration_sec = (end_time - start_time).total_seconds()
 
-        # Minimum physical support duration matching contacts.pl
         if duration_sec >= 120:
-            min_start = start_time + pd.Timedelta(minutes=2)
+            min_start = start_time + pd.Timedelta(minutes=5)
             window_start = min_start.ceil('10min')
             window_end = window_start + pd.Timedelta(minutes=30)
-            max_end = end_time - pd.Timedelta(minutes=2)
-            
-            # Identify if it satisfies the specific extraction length constraint
+            max_end = end_time - pd.Timedelta(minutes=5)
+
             is_valid = window_end <= max_end
-            
+
             supports.append({
                 'start': start_time,
                 'end': end_time,

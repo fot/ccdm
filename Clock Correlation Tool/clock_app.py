@@ -1,27 +1,31 @@
 import sys
 import json
 import shutil
-import re
+import mimetypes
+import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
-import pandas as pd
+from email.message import EmailMessage
+
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QFileDialog, QTextEdit, QMessageBox, QCheckBox,
-                             QLineEdit, QGroupBox)
+                             QLineEdit, QGroupBox, QProgressDialog)
 from PyQt6.QtGui import QAction, QTextCursor
 from PyQt6.QtCore import Qt
 
 # Local Imports
-from workers import (ConsoleStream, SFTPWorker, PipelineWorker, SFTP_CONFIG_PATH)
+from workers import ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker, SFTP_CONFIG_PATH
 from data_parsing import parse_sto_contacts, parse_sto_file
 from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog, 
                      BinaryExportDialog, ErpSourceDialog, NrtSourceDialog,
-                     StoContactSelectionDialog)
+                     StoContactSelectionDialog, EmailPreviewDialog)
 from binary_convert import convert_dis_file, convert_dat_file
 from reports import (generate_trending_report, generate_correlation_report,
-                     get_correlation_report_title, update_html_table)
+                     get_correlation_report_title, update_html_table,
+                     draft_correlation_email)
 from plots import generate_residual_plot
+from misc import get_incremented_clkhst_name
 
 
 class ClockDriftApp(QMainWindow):
@@ -186,15 +190,24 @@ class ClockDriftApp(QMainWindow):
         self.btn_run_all.setMinimumHeight(30)
         self.btn_run_all.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
         self.btn_run_all.clicked.connect(self.run_all_outputs)
+
+        # Email Draft Button
+        self.btn_email = QPushButton("Draft Report Email")
+        self.btn_email.setMinimumHeight(30)
+        self.btn_email.setStyleSheet("background-color: #3498db; color: white; font-weight: bold;")
+        self.btn_email.clicked.connect(self.draft_email)
+
         output_row2.addWidget(self.btn_run_all)
+        output_row2.addWidget(self.btn_email) # Inject it next to the run_all button
 
         output_main_layout.addLayout(output_row1)
         output_main_layout.addLayout(output_row2)
         self.output_group.setLayout(output_main_layout)
-        
+
+        # Add to button list so it toggles on/off correctly
         self.output_buttons = [self.btn_binaries, self.btn_trend, self.btn_corr,
                                self.btn_plot, self.btn_html_table, self.btn_csv,
-                               self.btn_run_all, self.btn_out_dir]
+                               self.btn_run_all, self.btn_out_dir, self.btn_email]
 
         for btn in self.output_buttons:
             btn.setEnabled(False) 
@@ -376,33 +389,56 @@ class ClockDriftApp(QMainWindow):
             self.check_ready_state()
 
     def open_sto_parser(self):
-        """Loads STO data, locates the yearly JSON ledger, and slices the cumulative dataframe."""
-        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/STOFiles")
+        """Spawns a progress dialog and dispatches the heavy STO parsing to a background thread."""
+        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/NRTFiles")
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Master Telemetry File (.STO)",
-            str(default_dir),
-            "Telemetry Files (*.sto);;All Files (*.*)"
+            self, "Select Master Telemetry File (.STO / .NRT)", 
+            str(default_dir), 
+            "Telemetry Files (*.sto *.nrt *.csv *.txt);;All Files (*.*)"
         )
-        self.sto_file = file_path
 
         if not file_path:
             return
 
-        print(f"[UI] Parsing master telemetry file: {Path(file_path).name}")
-        
-        try:
-            sto_df = parse_sto_file(file_path)
-        except Exception as e:
-            QMessageBox.critical(self, "Load Error", f"Failed to read file: {e}")
+        # FIX: Save the STO file path so the Correlation Report generator has a filename to reference
+        self.current_sto_filepath = file_path 
+
+        print(f"[UI] Initiating background parse for telemetry file: {Path(file_path).name}")
+
+        self.progress_dialog = QProgressDialog(f"Loading {Path(file_path).name}...", "Cancel", 0, 100, self)
+        self.progress_dialog.setWindowTitle("Parsing Master File")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.setAutoClose(False) 
+        self.progress_dialog.setAutoReset(False) 
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setValue(0)
+
+        self.sto_worker = StoParserWorker(file_path)
+        self.sto_worker.progress.connect(self.progress_dialog.setValue)
+        self.sto_worker.finished.connect(self.on_sto_parsed)
+        self.sto_worker.error.connect(self.on_sto_error)
+
+        self.progress_dialog.canceled.connect(self.sto_worker.cancel)
+        self.sto_worker.start()
+
+    def on_sto_error(self, err_msg):
+        """Handles any exceptions thrown during the background parse."""
+        self.progress_dialog.close()
+        QMessageBox.critical(self, "Load Error", f"Failed to read file:\n{err_msg}")
+
+    def on_sto_parsed(self, sto_df):
+        """Receives the loaded dataframe from the background thread and resumes the UI flow."""
+        self.progress_dialog.close()
+
+        if sto_df.empty:
             return
 
         supports = parse_sto_contacts(sto_df, time_col='datetime')
-        
+
         if not supports:
             QMessageBox.information(self, "No Contacts", "No physical supports >= 2.0 minutes were found.")
             return
 
-        # Determine the target year directory for the contact_history ledger
         data_year = sto_df['datetime'].min().strftime("%Y")
         history_file = Path(self.base_out_dir) / data_year / "contact_history.json"
 
@@ -411,18 +447,20 @@ class ClockDriftApp(QMainWindow):
         if dialog.exec():
             combined_mask = pd.Series(False, index=sto_df.index)
             num_extracts = len(dialog.selected_windows)
-
-            # Format multi-line list widget string
             display_strs = [f"STO Extracts ({num_extracts}):"]
 
-            for i, (w_start, w_end) in enumerate(dialog.selected_windows):
+            for w_start, w_end in dialog.selected_windows:
                 combined_mask |= (sto_df['datetime'] >= w_start) & (sto_df['datetime'] < w_end)
-                display_strs.append(f"{i+1}) {w_start.strftime('%Y:%j %H:%M')} to {w_end.strftime('%H:%M')}")
+                display_strs.append(f"{w_start.strftime('%Y:%j %H:%M')} to {w_end.strftime('%H:%M')}")
 
             self.telemetry_df = sto_df.loc[combined_mask].copy()
 
             if 'time_diff' in self.telemetry_df.columns:
                 self.telemetry_df = self.telemetry_df.drop(columns=['time_diff', 'support_id'])
+
+            # FIX: Append the master file to the queue list so reports.py doesn't crash on Path(None)
+            if hasattr(self, 'current_sto_filepath') and self.current_sto_filepath not in self.nrt_files:
+                self.nrt_files.append(self.current_sto_filepath)
 
             summary_str = "\n".join(display_strs)
             self.list_nrt_files.addItem(summary_str)
@@ -486,18 +524,11 @@ class ClockDriftApp(QMainWindow):
             try:
                 out_path = Path(self.out_dir)
 
-                def get_incremented_clkhst_name(filepath):
-                    p = Path(filepath)
-                    match = re.match(r"(CLKHST_)(\d+)", p.stem, re.IGNORECASE)
-                    if match:
-                        prefix = match.group(1).upper()
-                        num = int(match.group(2))
-                        return f"{prefix}{num + 1}{p.suffix.upper()}"
-                    return f"NEW_{p.name}"
-
                 # Process .DIS file
                 if dialog.base_dis:
-                    dest_dis = out_path / get_incremented_clkhst_name(dialog.base_dis)
+                    self.base_dis = dialog.base_dis
+                    dest_dis = out_path / get_incremented_clkhst_name(self.base_dis)
+
                     shutil.copy(dialog.base_dis, dest_dis)
                     convert_dis_file(self.nrt_df, inputdir=str(dialog.base_dis), outputdir=str(dest_dis))
                     print(f"[UI] Binary DB .DIS successfully exported to {dest_dis}")
@@ -508,7 +539,8 @@ class ClockDriftApp(QMainWindow):
 
                 # Process .DAT file
                 if dialog.base_dat:
-                    dest_dat = out_path / get_incremented_clkhst_name(dialog.base_dat)
+                    self.base_dat = dialog.base_dat
+                    dest_dat = out_path / get_incremented_clkhst_name(self.base_dat)
                     shutil.copy(dialog.base_dat, dest_dat)
                     convert_dat_file(self.nrt_df, inputdir=str(dialog.base_dat), outputdir=str(dest_dat))
                     print(f"[UI] Binary DB .DAT successfully exported to {dest_dat}")
@@ -519,6 +551,56 @@ class ClockDriftApp(QMainWindow):
 
             except Exception as e:
                 print(f"[ERROR] Binary export failed: {e}")
+
+    def draft_email(self):
+        """Generates email text, locates the plot, displays the preview, and saves an .eml file."""
+        try:
+            # Locate the generated residual plot
+            filetitle = get_correlation_report_title(self.nrt_df)
+            expected_plot_path = Path(self.out_dir) / f"{filetitle}_residuals.png"
+
+            if not expected_plot_path.exists():
+                QMessageBox.warning(self, "Attachment Warning", "The residual plot has not been generated yet. Please generate the plot before drafting the email.")
+                actual_plot_path = None
+            else:
+                actual_plot_path = expected_plot_path
+
+            # Get body string and show dialog
+            subject, body = draft_correlation_email(self)
+            dialog = EmailPreviewDialog(subject, body, actual_plot_path, self)
+
+            # Save the payload as an Outlook-compatible .eml file
+            if dialog.exec():
+                email_data = dialog.get_email_data()
+
+                draft_filename = f"{filetitle}_Email.eml"
+                draft_path = Path(self.out_dir) / draft_filename
+
+                try:
+                    msg = EmailMessage()
+                    msg['Subject'] = email_data['subject']
+                    msg['From'] = email_data['from']
+                    msg['To'] = email_data['to']
+                    msg.set_content(email_data['body'], charset='utf-8')
+
+                    if email_data['attachment'] and Path(email_data['attachment']).exists():
+                        att_path = Path(email_data['attachment'])
+                        ctype, _ = mimetypes.guess_type(att_path)
+                        maintype, subtype = (ctype or 'application/octet-stream').split('/', 1)
+
+                        with open(att_path, 'rb') as f:
+                            msg.add_attachment(f.read(), maintype=maintype, subtype=subtype, filename=att_path.name)
+
+                    with open(draft_path, 'wb') as f:
+                        f.write(bytes(msg))
+
+                    print(f"[UI] Email draft saved to {draft_path}")
+
+                except Exception as save_err:
+                    QMessageBox.warning(self, "Save Error", f"Failed to generate email file:\n{save_err}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to draft email: {e}")
 
     def generate_trending(self, autorun=False):
         trend_dir = Path("//noodle/fot/users/rhoover/Clock Tool Development Files")
@@ -557,7 +639,7 @@ class ClockDriftApp(QMainWindow):
             filetitle = get_correlation_report_title(self.nrt_df)
 
             if autorun:
-                file_path = str(Path(self.out_dir) / f"{filetitle}.txt")
+                file_path = Path(self.out_dir) / f"{filetitle}.txt"
             else:
                 file_path, _ = QFileDialog.getSaveFileName(self, "Save Correlation Report",
                                                            str(Path(self.out_dir) / f"{filetitle}.txt"),
@@ -565,7 +647,8 @@ class ClockDriftApp(QMainWindow):
 
             if file_path:
                 generate_correlation_report(self.nrt_df, self.nrt_files,
-                                            self.erp_file, self.sto_file, Path(file_path).parent)
+                                            self.erp_file, self.sto_file,
+                                            Path(file_path).parent)
             print(f"[UI] Correlation report successfully generated.")
         except Exception as e:
             print(f"[ERROR] Correlation report generation failed: {e}")
@@ -575,7 +658,7 @@ class ClockDriftApp(QMainWindow):
             filetitle = get_correlation_report_title(self.nrt_df)
 
             if autorun:
-                file_path = str(Path(self.out_dir) / f"{filetitle}_residuals.png")
+                file_path = Path(self.out_dir) / f"{filetitle}_residuals.png"
             else:
                 file_path, _ = QFileDialog.getSaveFileName(self, "Save Residual Plot",
                                                            str(Path(self.out_dir) / f"{filetitle}_residuals.png"),

@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import astropy.units as u
 
 #Local Imports
-from misc import log_callback, error_callback, get_constants
+from misc import log_callback, error_callback, get_constants, get_incremented_clkhst_name
 
 # CONSTANTS
 constants = get_constants()
@@ -570,9 +570,9 @@ def update_html_table(df, filepath):
         ref_time = df['astropy_time'].iloc[0].datetime.strftime('%Y:%j:%H:%M:%S.%f')
         ref_count = df['corrected_vcdu'].iloc[0]
         span_days = (df['astropy_time'].iloc[-1] - df['astropy_time'].iloc[0]).sec / 86400.0
-        
+
         rate_str = f"{global_c2:.12f}"
-        
+
         # Format the scientific notation, split at 'E', and zero-pad the exponent to 4 digits
         base, exp = f"{global_c3:.3E}".split('E')
         drift_str = f"{base}E{exp[0]}{int(exp[1:]):04d}"
@@ -608,3 +608,66 @@ def update_html_table(df, filepath):
                 file.write(str(soup))
         except Exception as e:
             error_callback(f"Unable to append data to HTML table, skipping...: {repr(e)}")
+
+
+def draft_correlation_email(self):
+    """Generates the subject and body template for the correlation email with strict alignment."""
+    nrt_df = self.nrt_df
+
+    # Locate the correct time column
+    if 'datetime' in nrt_df.columns:
+        time_col = nrt_df['datetime']
+    elif isinstance(nrt_df.index, pd.DatetimeIndex):
+        time_col = pd.Series(nrt_df.index)
+    else:
+        time_col = nrt_df.iloc[:, 0]
+
+    t_min = pd.to_datetime(time_col).min()
+    t_max = pd.to_datetime(time_col).max()
+
+    dest_dis = Path(self.out_dir) / get_incremented_clkhst_name(self.base_dis)
+    filename = Path(dest_dis).stem
+    subject = f"Clock History File {filename}"
+
+    ref_time = nrt_df['astropy_time'].iloc[0].strftime('%Y:%j:%H:%M:%S.%f')
+    ref_count = nrt_df['corrected_vcdu'].iloc[0]
+    span_days = (nrt_df['astropy_time'].iloc[-1] - nrt_df['astropy_time'].iloc[0]).sec / 86400.0
+    global_resid = nrt_df['global_resid_musec']
+    rms_resid = np.sqrt(np.mean(global_resid**2))
+    max_resid = np.max(global_resid)
+
+    global_c2 = nrt_df['global_rate'].iloc[0]
+    global_c3 = nrt_df['global_drift'].iloc[0]
+
+    rate_str = f"{global_c2:.12f}"
+    drift_str = f"{global_c3:.3e}"
+
+    # Use explicit column sizing and table width constants to guarantee alignment
+    label_width = 37
+    table_width = 104  # Sum of column widths (26 + 12 + 22 + 20 + 12) + separators (4 * 3)
+
+    body = (
+        f"{'New clock correlation history file:':<{label_width}}{filename}\n"
+        f"{'Interval start time:':<{label_width}}{t_min.strftime('%Y:%j:%H:%M:%S')}\n"
+        f"{'Interval stop time:':<{label_width}}{t_max.strftime('%Y:%j:%H:%M:%S')}\n"
+        f"\n"
+        f"{'Supports:':<{label_width}}15 at 1024 kbps\n"
+        f"\n"
+        f"{'RMS residual of the quadratic fit:':<{label_width}}{rms_resid:.2f} microsecond\n"
+        f"{'Maximum residual:':<{label_width}}{max_resid:.2f} microsecond\n"
+        f"{'Baselined characteristics:':<{label_width}}CHARACTERIS_03JUNE26\n"
+        f"Notes:\n"
+        f"   1.  ALL SUPPORTS WERE PROCESSED USING A DEFINITIVE EPHEMERIS\n"
+        f"   2.  NORMAL CLOCK PROCESSING PERFORMED ON TUESDAYS, WEDNESDAYS, OR THURSDAYS\n"
+        f"\n"
+        f"The {filename} file has been copied to ODE_Transfer on lucky.\n"
+        f"\n"
+        f"Newest results and results not yet posted to the web archive are listed below.\n"
+        f"{'-' * table_width}\n"
+        f"{'RefTime (UTC)':<26} | {'RefCounts':<12} | {'Rate (Quadratic)':<22} | "
+        f"{'Drift (Quadratic)':<20} | {'Span (Days)':<12}\n"
+        f"{'-' * table_width}\n"
+        f"{ref_time:<26} | {ref_count:<12.0f} | {rate_str:<22} | "
+        f"{drift_str:<20} | {f'{span_days:.2f} Days':<12}"
+    )
+    return subject, body
