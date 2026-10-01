@@ -2,10 +2,12 @@ import sys
 import json
 import shutil
 import mimetypes
+import html
 import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 from email.message import EmailMessage
+from email.policy import default
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QListWidget,
@@ -16,14 +18,14 @@ from PyQt6.QtCore import Qt
 
 # Local Imports
 from workers import ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker, SFTP_CONFIG_PATH
-from data_parsing import parse_sto_contacts, parse_sto_file
-from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog, 
+from data_parsing import parse_sto_contacts
+from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog,
                      BinaryExportDialog, ErpSourceDialog, NrtSourceDialog,
                      StoContactSelectionDialog, EmailPreviewDialog)
 from binary_convert import convert_dis_file, convert_dat_file
 from reports import (generate_trending_report, generate_correlation_report,
                      get_correlation_report_title, update_html_table,
-                     draft_correlation_email)
+                     draft_correlation_email, update_maude_refdata)
 from plots import generate_residual_plot
 from misc import get_incremented_clkhst_name
 
@@ -112,21 +114,21 @@ class ClockDriftApp(QMainWindow):
         nrt_layout = QVBoxLayout()
         nrt_layout.setContentsMargins(0, 0, 0, 0)
         nrt_layout.setSpacing(2)
-        
+
         nrt_layout.addWidget(QLabel("<b>Active Telemetry Queue:</b>"))
-        
+
         self.list_nrt_files = QListWidget()
         self.list_nrt_files.setMinimumHeight(160)
         self.list_nrt_files.setMaximumHeight(160)
         nrt_layout.addWidget(self.list_nrt_files)
         input_group_layout.addLayout(nrt_layout)
-        
+
         main_layout.addLayout(input_group_layout)
 
         # Run Button & Legacy Mode Block
         run_layout = QHBoxLayout()
         run_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         self.chk_legacy = QCheckBox("Legacy Mode")
         self.chk_legacy.stateChanged.connect(self.toggle_legacy_mode)
         run_layout.addWidget(self.chk_legacy, stretch=1)
@@ -137,7 +139,7 @@ class ClockDriftApp(QMainWindow):
         self.btn_run.setStyleSheet("font-weight: bold; font-size: 14px; background-color: #8e44ad; color: white;")
         self.btn_run.clicked.connect(self.run_calculation)
         run_layout.addWidget(self.btn_run, stretch=3)
-        
+
         main_layout.addLayout(run_layout)
 
         # POST-PROCESSING UI BLOCK
@@ -151,7 +153,7 @@ class ClockDriftApp(QMainWindow):
         self.txt_out_dir.setReadOnly(True)
         self.btn_out_dir = QPushButton("Browse...")
         self.btn_out_dir.clicked.connect(self.select_output_directory)
-        
+
         out_dir_layout.addWidget(QLabel("Output Directory:"))
         out_dir_layout.addWidget(self.txt_out_dir)
         out_dir_layout.addWidget(self.btn_out_dir)
@@ -159,22 +161,25 @@ class ClockDriftApp(QMainWindow):
 
         # Individual Outputs Row
         output_row1 = QHBoxLayout()
-        self.btn_binaries = QPushButton("Export Binary DBs")
+        self.btn_binaries = QPushButton("Export Binary Files (.dis/.dat)")
         self.btn_binaries.clicked.connect(self.export_binaries)
 
-        self.btn_trend = QPushButton("Trending Report")
+        self.btn_trend = QPushButton("Trending Report (.xlsx)")
         self.btn_trend.clicked.connect(self.generate_trending)
 
-        self.btn_corr = QPushButton("Correlation Report")
+        self.btn_corr = QPushButton("Correlation Report (.txt)")
         self.btn_corr.clicked.connect(self.generate_correlation)
 
-        self.btn_plot = QPushButton("Residual Plot")
+        self.btn_plot = QPushButton("Residual Plot (.png/.html)")
         self.btn_plot.clicked.connect(self.generate_plot)
 
         self.btn_html_table = QPushButton("HTML Table")
         self.btn_html_table.clicked.connect(self.update_html_record_table)
 
-        self.btn_csv = QPushButton("Export CSV")
+        self.btn_maude_update = QPushButton("Update MAUDE Refdata")
+        self.btn_maude_update.clicked.connect(self.maude_ref_update)
+
+        self.btn_csv = QPushButton("Data Export (.csv)")
         self.btn_csv.clicked.connect(self.export_csv)
 
         output_row1.addWidget(self.btn_binaries)
@@ -182,6 +187,7 @@ class ClockDriftApp(QMainWindow):
         output_row1.addWidget(self.btn_corr)
         output_row1.addWidget(self.btn_plot)
         output_row1.addWidget(self.btn_html_table)
+        output_row1.addWidget(self.btn_maude_update)
         output_row1.addWidget(self.btn_csv)
 
         # Batch Run Row
@@ -207,6 +213,7 @@ class ClockDriftApp(QMainWindow):
         # Add to button list so it toggles on/off correctly
         self.output_buttons = [self.btn_binaries, self.btn_trend, self.btn_corr,
                                self.btn_plot, self.btn_html_table, self.btn_csv,
+                               self.btn_maude_update,
                                self.btn_run_all, self.btn_out_dir, self.btn_email]
 
         for btn in self.output_buttons:
@@ -282,7 +289,7 @@ class ClockDriftApp(QMainWindow):
                 else:
                     t_min = pd.to_datetime(self.nrt_df.iloc[:, 0]).min()
                     t_max = pd.to_datetime(self.nrt_df.iloc[:, 0]).max()
-                
+
                 yyyy_str = t_min.strftime("%Y")
                 yy_str = t_min.strftime("%y")
                 start_str = t_min.strftime("%j")
@@ -296,7 +303,7 @@ class ClockDriftApp(QMainWindow):
         year_path = Path(self.base_out_dir) / yyyy_str
         sub_path = year_path / sub_dir_name
         sub_path.mkdir(parents=True, exist_ok=True)
-        
+
         self.out_dir = str(sub_path)
         self.txt_out_dir.setText(self.out_dir)
         print(f"[UI] Output Subdirectory created: {self.out_dir}")
@@ -390,7 +397,7 @@ class ClockDriftApp(QMainWindow):
 
     def open_sto_parser(self):
         """Spawns a progress dialog and dispatches the heavy STO parsing to a background thread."""
-        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/NRTFiles")
+        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/STOFiles")
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Master Telemetry File (.STO / .NRT)", 
             str(default_dir), 
@@ -400,7 +407,6 @@ class ClockDriftApp(QMainWindow):
         if not file_path:
             return
 
-        # FIX: Save the STO file path so the Correlation Report generator has a filename to reference
         self.current_sto_filepath = file_path 
 
         print(f"[UI] Initiating background parse for telemetry file: {Path(file_path).name}")
@@ -486,7 +492,7 @@ class ClockDriftApp(QMainWindow):
     def run_calculation(self):
         self.btn_run.setEnabled(False)
         self.txt_output.clear()
-        
+
         for btn in self.output_buttons:
             btn.setEnabled(False)
 
@@ -573,15 +579,36 @@ class ClockDriftApp(QMainWindow):
             if dialog.exec():
                 email_data = dialog.get_email_data()
 
-                draft_filename = f"{filetitle}_Email.eml"
+                draft_filename = f"{filetitle}.eml"
                 draft_path = Path(self.out_dir) / draft_filename
 
                 try:
+                    # Initialize natively. The HTML block handles the formatting, 
                     msg = EmailMessage()
                     msg['Subject'] = email_data['subject']
                     msg['From'] = email_data['from']
                     msg['To'] = email_data['to']
-                    msg.set_content(email_data['body'], charset='utf-8')
+
+                    # 1. Set the standard plain-text fallback
+                    msg.set_content(email_data['body'], cte='8bit')
+
+                    # 2. Add an HTML alternative to absolutely enforce monospace alignment in Outlook
+                    safe_body = html.escape(email_data['body'])
+                    html_wrapper = f"""<html>
+                    <head>
+                        <style>
+                            pre {{
+                                font-family: Consolas, "Courier New", monospace;
+                                font-size: 13px;
+                                color: #000000;
+                            }}
+                        </style>
+                    </head>
+                    <body>
+                        <pre>{safe_body}</pre>
+                    </body>
+                    </html>"""
+                    msg.add_alternative(html_wrapper, subtype='html', cte='8bit')
 
                     if email_data['attachment'] and Path(email_data['attachment']).exists():
                         att_path = Path(email_data['attachment'])
@@ -679,6 +706,13 @@ class ClockDriftApp(QMainWindow):
         except Exception as e:
             print(f"[ERROR] HTML table update failed: {e}")
 
+    def maude_ref_update(self):
+        try:
+            update_maude_refdata(self.nrt_df)
+            print(f"[UI] MAUDE reference data successfully updated.")
+        except Exception as e:
+            print(f"[ERROR] MAUDE reference data update failed: {e}")
+
     def run_all_outputs(self):
         try:
             print(f"[UI] Executing batch output generation to {Path(self.out_dir)}...")
@@ -688,6 +722,8 @@ class ClockDriftApp(QMainWindow):
             self.generate_correlation(autorun=True)
             self.generate_plot(autorun=True)
             self.update_html_record_table()
+            self.draft_email()
+            self.maude_ref_update()
 
             print("[UI] Batch output generation complete.")
         except Exception as e:

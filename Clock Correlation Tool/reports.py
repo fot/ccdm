@@ -259,7 +259,7 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=
     # (often formal error vs. actual/empirical error from the pipeline). 
     # You will need to map these to the correct columns in your nrt_df. 
     # Placeholders (e.g., _val1, _val2) are used here for formatting.
-    
+
     stdtim_val1, stdtim_val2 = 0.0, 0.0 # Replace with actual DF variables
     stdrate_val1, stdrate_val2 = 0.0, 0.0 # Replace with actual DF variables
     stddrift_val1, stddrift_val2 = 0.0, 0.0 # Replace with actual DF variables
@@ -278,7 +278,7 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=
     # =========================================================
     # Adjusted header spacing to strictly match the legacy printout
     write(f"Primary Correlation Residuals,          NumPrimCorr = {total_passes:>3}\n")
-    
+
     # Use exact column widths to align headers seamlessly over the data
     write(f"{'num':>3}{'deltacnt':>14}{'deltasec':>14}{'maxresid':>14}{'minresid':>14}\n")
 
@@ -644,7 +644,6 @@ def draft_correlation_email(self):
 
     # Use explicit column sizing and table width constants to guarantee alignment
     label_width = 37
-    table_width = 104  # Sum of column widths (26 + 12 + 22 + 20 + 12) + separators (4 * 3)
 
     body = (
         f"{'New clock correlation history file:':<{label_width}}{filename}\n"
@@ -656,6 +655,7 @@ def draft_correlation_email(self):
         f"{'RMS residual of the quadratic fit:':<{label_width}}{rms_resid:.2f} microsecond\n"
         f"{'Maximum residual:':<{label_width}}{max_resid:.2f} microsecond\n"
         f"{'Baselined characteristics:':<{label_width}}CHARACTERIS_03JUNE26\n"
+        f"\n"
         f"Notes:\n"
         f"   1.  ALL SUPPORTS WERE PROCESSED USING A DEFINITIVE EPHEMERIS\n"
         f"   2.  NORMAL CLOCK PROCESSING PERFORMED ON TUESDAYS, WEDNESDAYS, OR THURSDAYS\n"
@@ -663,11 +663,96 @@ def draft_correlation_email(self):
         f"The {filename} file has been copied to ODE_Transfer on lucky.\n"
         f"\n"
         f"Newest results and results not yet posted to the web archive are listed below.\n"
-        f"{'-' * table_width}\n"
-        f"{'RefTime (UTC)':<26} | {'RefCounts':<12} | {'Rate (Quadratic)':<22} | "
-        f"{'Drift (Quadratic)':<20} | {'Span (Days)':<12}\n"
-        f"{'-' * table_width}\n"
-        f"{ref_time:<26} | {ref_count:<12.0f} | {rate_str:<22} | "
-        f"{drift_str:<20} | {f'{span_days:.2f} Days':<12}"
+        f"{'-' * 76}\n"
+        f"{'ref time (UTC)':<21} | {'refcnt':<12} | {'rate (sec/cnt)':<22} | "
+        f"{'drift (sec/cnt^2)':<20} | {'span (days)':<12}\n"
+        f"{ref_time:<20} | {ref_count:<12.0f} | {rate_str:<22} | "
+        f"{drift_str:<20} | {f'{span_days:.1f} days':<12}"
     )
     return subject, body
+
+
+def update_maude_refdata(df):
+    """
+    Replaces the legacy clock_retrieve.bash script. Extracts reference data 
+    from the dataframe and natively updates refdata.txt in reverse chronological order.
+    """
+    # script_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/MAUDE_refdata_update") # real
+    script_dir = Path("//noodle/fot/users/rhoover/Clock Tool Development Files/MAUDE_refdata_update")
+    refdata_dir = script_dir / "MAUDE_refdata"
+    
+    refdata_file = refdata_dir / "refdata.txt"
+    skip_file = script_dir / "SKIP_RECORDS.txt"
+    log_file = script_dir / "log.txt"
+
+    # 1. Extract values from the DataFrame
+    dt = df['astropy_time'].iloc[0].datetime
+    vcdu = int(df['corrected_vcdu'].iloc[0])
+    rate = float(df['global_rate'].iloc[0])
+
+    # 2. Legacy validation checks (Mirrors bash bounds exactly)
+    if not (1999 <= dt.year <= 2030): return
+    if not (1 <= dt.timetuple().tm_yday <= 366): return
+    if not (0 <= dt.hour <= 23): return
+    if not (0 <= dt.minute <= 59): return
+    if not (0 <= dt.second <= 59): return
+    if not (0 <= vcdu <= 16777215): return
+
+    # 3. Legacy millisecond rounding logic
+    ms = dt.microsecond // 1000
+    us = dt.microsecond % 1000
+
+    if us > 500:
+        ms += 1
+        # The legacy script intentionally drops the record if rounding pushes it to 1000
+        if ms > 999:
+            log_callback("[MAUDE RefData] Millisecond rollover detected. Dropping record to match legacy behavior.")
+            return
+
+    time_str = f"{dt.strftime('%Y%j.%H%M%S')}{ms:03d}"
+    rate_str = f"{rate:.12f}"
+
+    # The legacy regex strictly enforced rates starting with "0.25625"
+    if not rate_str.startswith("0.25625"):
+        log_callback(f"[MAUDE RefData WARNING] Rate {rate_str} deviates from legacy '0.25625' expectation.")
+
+    new_entry = f"{time_str} {vcdu} {rate_str}"
+
+    # 4. Check SKIP_RECORDS.txt
+    if skip_file.exists():
+        with open(skip_file, 'r') as f:
+            skips = f.read().splitlines()
+            if new_entry in skips:
+                log_callback(f"[MAUDE RefData] Entry matches SKIP_RECORDS.txt. Ignoring.")
+                return
+
+    # 5. Read existing refdata.txt
+    existing_entries = []
+    if refdata_file.exists():
+        with open(refdata_file, 'r') as f:
+            existing_entries = [line.strip() for line in f if line.strip()]
+
+    # 6. Check for duplicates, append, and sort
+    if new_entry in existing_entries:
+        log_callback(f"[MAUDE RefData] Entry already exists in {refdata_file.name}. No changes made.")
+        return
+
+    existing_entries.append(new_entry)
+
+    # Because time_str starts with YYYYDDD..., standard reverse string sorting 
+    # perfectly replicates the bash `sort -n -r` behavior
+    existing_entries.sort(reverse=True)
+
+    # 7. Write updated records back to file
+    refdata_dir.mkdir(parents=True, exist_ok=True)
+    with open(refdata_file, 'w') as f:
+        for entry in existing_entries:
+            f.write(f"{entry}\n")
+
+    # 8. Log the update to match the bash output tracker
+    now = datetime.now()
+    now_str = f"{now.strftime('%a %b %d %H:%M:%S')} EDT {now.strftime('%Y')}"
+    with open(log_file, 'a') as f:
+        f.write(f"{now_str} ADD {new_entry}\n")
+
+    log_callback(f"[MAUDE RefData] File successfully updated with {new_entry}")

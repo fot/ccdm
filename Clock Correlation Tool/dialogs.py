@@ -209,14 +209,14 @@ class StoContactSelectionDialog(QDialog):
         self.history_file = Path(history_file)
         
         self.raw_history = []
-        self.locked_windows = set()         
+        self.locked_windows = set()
         self.unselected_historical = set()
-        self.selected_windows = []          
+        self.selected_windows = []
         self.is_rerun = False
-        
+
         self.load_history()
         self.init_ui()
-        
+
     def load_history(self):
         """Reads the complete JSON ledger into memory for evaluation."""
         if self.history_file.exists():
@@ -228,7 +228,7 @@ class StoContactSelectionDialog(QDialog):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        
+
         # Setup Table
         self.table = QTableWidget(len(self.supports), 5)
         self.table.setHorizontalHeaderLabels([
@@ -238,15 +238,15 @@ class StoContactSelectionDialog(QDialog):
             "Extraction Window",
             "Status"
         ])
-        
+
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        
+
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        
+
         # 1. Determine 7-day threshold for "New" vs "Older"
         if self.supports:
             max_time = max(sup['end'] for sup in self.supports)
@@ -257,7 +257,7 @@ class StoContactSelectionDialog(QDialog):
         # 2. Extract strictly Historical data
         selected_history = []
         explicitly_ignored = set()
-        
+
         for item in self.raw_history:
             win = (item['support_start'], item['support_end'])
             if item.get('selected', False):
@@ -277,20 +277,20 @@ class StoContactSelectionDialog(QDialog):
             
             if sup['is_valid'] and sup['end'] >= cutoff_time and not is_historical:
                 available_new_count += 1
-                
+
         self.is_rerun = (available_new_count == 0)
-        
+
         # 4. Enforce lock limits (15 if re-run, 8 if standard run)
         lock_target = 15 if self.is_rerun else 8
         selected_history.sort(key=lambda x: x['support_start'])
         recent_target = selected_history[-lock_target:]
-        
+
         for item in recent_target:
             self.locked_windows.add((item['support_start'], item['support_end']))
-            
+
         for item in selected_history[:-lock_target]:
             self.unselected_historical.add((item['support_start'], item['support_end']))
-            
+
         self.unselected_historical.update(explicitly_ignored)
 
         # 5. Populate Table
