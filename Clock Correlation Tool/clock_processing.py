@@ -8,8 +8,8 @@ from astropy import units as u
 from misc import (
     get_constants, load_calib_database, log_callback, is_consecutive_check
 )
-from math_functions import (get_ground_station_position,
-                            ephemeris_interpolator, two_pass_coefficient_solver)
+from math_functions import (get_ground_station_position, ephemeris_interpolator,
+                            two_pass_coefficient_solver, legacy_coefficient_solver)
 
 # ---------------------------------------------------------
 # CONSTANTS
@@ -115,8 +115,8 @@ def calculate_clock_drift(erp_df, nrt_df, legacy_mode=True):
     is_consecutive_check(nrt_df)
 
     # 5. Execute Trending Pipelines
-    daily_trending(nrt_df)
-    weekly_trending(nrt_df)
+    daily_trending(nrt_df, legacy_mode)
+    weekly_trending(nrt_df, legacy_mode)
 
     return nrt_df
 
@@ -124,7 +124,7 @@ def calculate_clock_drift(erp_df, nrt_df, legacy_mode=True):
 # ---------------------------------------------------------
 # PIPELINE 1: DAILY TRENDING
 # ---------------------------------------------------------
-def daily_trending(nrt_df):
+def daily_trending(nrt_df, legacy_mode=False):
     """
     Daily Trending using a local 2nd-degree fit plus a
     3rd degree fit for higher-order drift analysis.
@@ -152,7 +152,12 @@ def daily_trending(nrt_df):
         pass_delta_vcdu = pass_vcdus - pass_vcdus[0]
         pass_delta_tcs = pass_tsc - pass_tsc[0]
 
-        results = two_pass_coefficient_solver(pass_delta_vcdu, pass_delta_tcs, scale=scale)
+        # if legacy_mode:
+        #     results = legacy_coefficient_solver(pass_delta_vcdu, pass_delta_tcs, scale=scale)
+        # else:
+        #     results = two_pass_coefficient_solver(pass_delta_vcdu, pass_delta_tcs, scale=scale)
+        results = legacy_coefficient_solver(pass_delta_vcdu, pass_delta_tcs, scale=scale)
+
         c1 = results["coeffs"]["T0"] + pass_tsc[0]
         c2 = results["coeffs"]["R0"]
         c3 = results["coeffs"]["D0"]
@@ -177,7 +182,7 @@ def daily_trending(nrt_df):
 # ---------------------------------------------------------
 # PIPELINE 2: WEEKLY TRENDING
 # ---------------------------------------------------------
-def weekly_trending(nrt_df):
+def weekly_trending(nrt_df, legacy_mode=False):
     """
     Weekly Trending using a Global Fit on the Entire Dataset.
     Implements a 1-to-1 matching 2-pass 3-sigma outlier rejection on global scope.
@@ -193,7 +198,12 @@ def weekly_trending(nrt_df):
     global_delta_tsc = global_tsc - global_tsc[0]
 
     # --- QUADRATIC FIT (2nd Order) ---
-    results = two_pass_coefficient_solver(global_delta_vcdu, global_delta_tsc, scale=scale)
+    # if legacy_mode:
+    #     results = legacy_coefficient_solver(global_delta_vcdu, global_delta_tsc, scale=scale)
+    # else:
+    #     results = two_pass_coefficient_solver(global_delta_vcdu, global_delta_tsc, scale=scale)
+    results = legacy_coefficient_solver(global_delta_vcdu, global_delta_tsc, scale=scale)
+
     global_c1 = results["coeffs"]["T0"]
     global_c2 = results["coeffs"]["R0"]
     global_c3 = results["coeffs"]["D0"]

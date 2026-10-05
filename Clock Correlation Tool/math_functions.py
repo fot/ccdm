@@ -261,6 +261,144 @@ def two_pass_coefficient_solver(x, y, scale=1e-6, initrate=0.25625000600):
     }
 
 
+def legacy_coefficient_solver(x, y, scale=1e-6, sigma_limit=3.0):
+    """
+    Exact Python port of the legacy sclk_curd.f coefficient solver.
+    Implements the mean-based pre-filter, the iterative linear/cubic rejection loop,
+    and the final unweighted quadratic fit using linear algebra diagonals for variance.
+    """
+    if len(x) < 3:
+        return {"status": "INSUFFICIENT_DATA"}
+
+    # 1. Scaling: Legacy system scales arrays by 1e-6 to prevent 32-bit overflows
+    x_scaled = x * scale
+    y_scaled = y * scale
+
+    # 2. Legacy Pre-Fit Auto-Edit
+    # Calculates arithmetic mean and variance, dropping points outside 3*sigma of the mean
+    avg_x = np.mean(x_scaled)
+    avg_y = np.mean(y_scaled)
+    var_x = np.mean(x_scaled**2) - avg_x**2
+    var_y = np.mean(y_scaled**2) - avg_y**2
+
+    dev_lim_x = 3.0 * np.sqrt(var_x)
+    dev_lim_y = 3.0 * np.sqrt(var_y)
+
+    mask = (np.abs(x_scaled - avg_x) < dev_lim_x) & (np.abs(y_scaled - avg_y) < dev_lim_y)
+    x_p = x_scaled[mask]
+    y_p = y_scaled[mask]
+
+    if len(x_p) < 3:
+        return {"status": "INSUFFICIENT_CLEAN_DATA"}
+
+    def build_matrix(x_arr, y_arr, mcoef):
+        """Constructs the exact AS and RHS matrices used in Fortran's UUTPLYFT."""
+        N = len(x_arr)
+        sums_x = np.zeros((mcoef * 2) - 1)
+        sums_x[0] = N
+        for k in range(1, (mcoef * 2) - 1):
+            sums_x[k] = np.sum(x_arr**k)
+
+        amat = np.zeros((mcoef, mcoef), dtype=np.float64)
+        for i in range(mcoef):
+            for j in range(mcoef):
+                amat[i, j] = sums_x[i+j]
+
+        avec = np.zeros(mcoef, dtype=np.float64)
+        for i in range(mcoef):
+            avec[i] = np.sum((x_arr**i) * y_arr)
+
+        return amat, avec
+
+    # 3. Iterative Linear/Cubic Fit Loop (I_REPEAT logic)
+    # Replicates the legacy DO WHILE loop that evaluates residuals and resets if points are dropped
+    i_repeat = 2
+    while i_repeat > 0:
+        if i_repeat == 2:
+            mcoef = 2  # Pass 1: Linear fit for rejection
+        else:
+            mcoef = 4  # Pass 2: Cubic fit 
+            i_repeat = 1
+
+        amat, avec = build_matrix(x_p, y_p, mcoef)
+        try:
+            coeffs = np.linalg.inv(amat) @ avec
+        except np.linalg.LinAlgError:
+            return {"status": "SOLVE_FAILED"}
+
+        y_pred = sum(coeffs[i] * (x_p**i) for i in range(mcoef))
+        resid = y_pred - y_p
+        var = np.sum(resid**2) / len(x_p)
+
+        i_repeat -= 1
+
+        if i_repeat == 1 and var > 0.0:
+            sigma = np.sqrt(var)
+            resid_test = np.abs(resid / sigma)
+            new_mask = resid_test < sigma_limit
+
+            if not np.all(new_mask):
+                x_p = x_p[new_mask]
+                y_p = y_p[new_mask]
+                i_repeat = 2  # Trigger another linear rejection pass
+
+                if len(x_p) < 3:
+                    return {"status": "INSUFFICIENT_CLEAN_DATA"}
+
+    # 4. Final Quadratic Fit (Replicates UUTINVERT on A_Q matrix)
+    amat_q, avec_q = build_matrix(x_p, y_p, 3)
+    try:
+        inv_A = np.linalg.inv(amat_q)
+        coeffs_q = inv_A @ avec_q
+    except np.linalg.LinAlgError:
+        return {"status": "SOLVE_FAILED_P2"}
+
+    # 5. Evaluate final Quadratic Residuals & Variance
+    y_pred_q = coeffs_q[0] + coeffs_q[1]*x_p + coeffs_q[2]*(x_p**2)
+    resid_q = y_pred_q - y_p
+
+    # Fortran VAR(2) calculates SSE / N directly on the scaled data
+    var2_scaled = np.sum(resid_q**2) / len(x_p)
+    var2_unscaled = var2_scaled / (scale**2)
+
+    # 6. Final Outputs & Rescaling
+    t0 = coeffs_q[0] / scale
+    r0 = coeffs_q[1]
+    d0 = coeffs_q[2] * scale * 2.0
+
+    # Legacy CSDT Uncertainty Calculations (Maps to A_Q diagonals)
+    std_devs = np.array([
+        np.sqrt(var2_unscaled * inv_A[0, 0]),
+        np.sqrt(var2_unscaled * inv_A[1, 1]) * scale,
+        2.0 * np.sqrt(var2_unscaled * inv_A[2, 2]) * (scale**2)
+    ], dtype=np.float64)
+
+    # Calculate physical stats for output compatibility
+    x_clean = x_p / scale
+    y_clean = y_p / scale
+    y_pred_physical = t0 + (r0 * x_clean) + ((d0 / 2.0) * (x_clean**2))
+    resid_physical = y_clean - y_pred_physical
+
+    sse = np.sum(resid_physical**2)
+    dof = len(x_clean) - 3
+    s2 = sse / dof if dof > 0 else 0.0
+
+    return {
+        "status": "SUCCESS",
+        "coeffs": {
+            "T0": t0,
+            "R0": r0,
+            "D0": d0
+        },
+        "amat_p2": amat_q,
+        "avec_p2": avec_q,
+        "std_devs": std_devs,
+        "s2": s2,
+        "sse": sse,
+        "n_clean": len(x_clean),
+    }
+
+
 def ephemeris_interpolator(target_times, erp_times, erp_pos, erp_vel, legacy_mode=True):
     """
     Interpolates spacecraft position and velocity from ephemeris data.
