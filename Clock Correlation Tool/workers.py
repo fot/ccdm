@@ -1,4 +1,3 @@
-import sys
 import json
 from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
@@ -12,7 +11,7 @@ try:
 except ImportError:
     PARAMIKO_AVAILABLE = False
 
-SFTP_CONFIG_PATH = Path.home() / ".ccdm_sftp_config.json"
+SFTP_CONFIG_PATH = Path.home() / ".clockapp_sftp_config.json"
 
 
 class ConsoleStream(QObject):

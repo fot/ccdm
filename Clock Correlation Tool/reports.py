@@ -691,12 +691,12 @@ def update_maude_refdata(df):
     rate = float(df['global_rate'].iloc[0])
 
     # 2. Legacy validation checks (Mirrors bash bounds exactly)
-    if not (1999 <= dt.year <= 2030): return
-    if not (1 <= dt.timetuple().tm_yday <= 366): return
-    if not (0 <= dt.hour <= 23): return
-    if not (0 <= dt.minute <= 59): return
-    if not (0 <= dt.second <= 59): return
-    if not (0 <= vcdu <= 16777215): return
+    if not (1999 <= dt.year <= 2030): return False
+    if not (1 <= dt.timetuple().tm_yday <= 366): return False
+    if not (0 <= dt.hour <= 23): return False
+    if not (0 <= dt.minute <= 59): return False
+    if not (0 <= dt.second <= 59): return False
+    if not (0 <= vcdu <= 16777215): return False
 
     # 3. Legacy millisecond rounding logic
     ms = dt.microsecond // 1000
@@ -707,7 +707,7 @@ def update_maude_refdata(df):
         # The legacy script intentionally drops the record if rounding pushes it to 1000
         if ms > 999:
             log_callback("[MAUDE RefData] Millisecond rollover detected. Dropping record to match legacy behavior.")
-            return
+            return False
 
     time_str = f"{dt.strftime('%Y%j.%H%M%S')}{ms:03d}"
     rate_str = f"{rate:.12f}"
@@ -724,7 +724,7 @@ def update_maude_refdata(df):
             skips = f.read().splitlines()
             if new_entry in skips:
                 log_callback(f"[MAUDE RefData] Entry matches SKIP_RECORDS.txt. Ignoring.")
-                return
+                return False
 
     # 5. Read existing refdata.txt
     existing_entries = []
@@ -735,7 +735,7 @@ def update_maude_refdata(df):
     # 6. Check for duplicates, append, and sort
     if new_entry in existing_entries:
         log_callback(f"[MAUDE RefData] Entry already exists in {refdata_file.name}. No changes made.")
-        return
+        return False
 
     existing_entries.append(new_entry)
 
@@ -756,3 +756,4 @@ def update_maude_refdata(df):
         f.write(f"{now_str} ADD {new_entry}\n")
 
     log_callback(f"[MAUDE RefData] File successfully updated with {new_entry}")
+    return True

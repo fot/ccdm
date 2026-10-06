@@ -7,7 +7,6 @@ import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 from email.message import EmailMessage
-from email.policy import default
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QListWidget,
@@ -21,11 +20,11 @@ from workers import ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker, 
 from data_parsing import parse_sto_contacts
 from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog,
                      BinaryExportDialog, ErpSourceDialog, NrtSourceDialog,
-                     StoContactSelectionDialog, EmailPreviewDialog)
+                     StoContactSelectionDialog, EmailPreviewDialog, MaudeRefdataDialog)
 from binary_convert import convert_dis_file, convert_dat_file
 from reports import (generate_trending_report, generate_correlation_report,
                      get_correlation_report_title, update_html_table,
-                     draft_correlation_email, update_maude_refdata)
+                     draft_correlation_email)
 from plots import generate_residual_plot
 from misc import get_incremented_clkhst_name
 
@@ -533,11 +532,11 @@ class ClockDriftApp(QMainWindow):
                 # Process .DIS file
                 if dialog.base_dis:
                     self.base_dis = dialog.base_dis
-                    dest_dis = out_path / get_incremented_clkhst_name(self.base_dis)
+                    self.dest_dis = out_path / get_incremented_clkhst_name(self.base_dis)
 
-                    shutil.copy(dialog.base_dis, dest_dis)
-                    convert_dis_file(self.nrt_df, inputdir=str(dialog.base_dis), outputdir=str(dest_dis))
-                    print(f"[UI] Binary DB .DIS successfully exported to {dest_dis}")
+                    shutil.copy(dialog.base_dis, self.dest_dis)
+                    convert_dis_file(self.nrt_df, inputdir=str(dialog.base_dis), outputdir=str(self.dest_dis))
+                    print(f"[UI] Binary DB .DIS successfully exported to {self.dest_dis}")
 
                     if ".sftp_cache" in Path(dialog.base_dis).parts:
                         Path(dialog.base_dis).unlink(missing_ok=True)
@@ -546,10 +545,10 @@ class ClockDriftApp(QMainWindow):
                 # Process .DAT file
                 if dialog.base_dat:
                     self.base_dat = dialog.base_dat
-                    dest_dat = out_path / get_incremented_clkhst_name(self.base_dat)
-                    shutil.copy(dialog.base_dat, dest_dat)
-                    convert_dat_file(self.nrt_df, inputdir=str(dialog.base_dat), outputdir=str(dest_dat))
-                    print(f"[UI] Binary DB .DAT successfully exported to {dest_dat}")
+                    self.dest_dat = out_path / get_incremented_clkhst_name(self.base_dat)
+                    shutil.copy(dialog.base_dat, self.dest_dat)
+                    convert_dat_file(self.nrt_df, inputdir=str(dialog.base_dat), outputdir=str(self.dest_dat))
+                    print(f"[UI] Binary DB .DAT successfully exported to {self.dest_dat}")
 
                     if ".sftp_cache" in Path(dialog.base_dat).parts:
                         Path(dialog.base_dat).unlink(missing_ok=True)
@@ -708,10 +707,14 @@ class ClockDriftApp(QMainWindow):
 
     def maude_ref_update(self):
         try:
-            update_maude_refdata(self.nrt_df)
-            print(f"[UI] MAUDE reference data successfully updated.")
+            print("[UI] Opening MAUDE Refdata Update and SVN Commit dialog...")
+
+            # Pass the path as an argument, keeping self as the parent window
+            dialog = MaudeRefdataDialog(getattr(self, 'dest_dis', None),
+                                        self.nrt_df, parent = self)
+            dialog.exec()
         except Exception as e:
-            print(f"[ERROR] MAUDE reference data update failed: {e}")
+            print(f"[ERROR] Failed to open MAUDE update dialog: {e}")
 
     def run_all_outputs(self):
         try:

@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from datetime import timedelta
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QFileDialog, QTextEdit, QMessageBox,
@@ -8,6 +7,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                              QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 from PyQt6.QtCore import QDateTime, QTime, Qt
 from workers import SFTPWorker, SFTP_CONFIG_PATH
+from reports import update_maude_refdata
+from svn import commit_refdata
 
 
 class SFTPConfigDialog(QDialog):
@@ -60,7 +61,7 @@ class SFTPConfigDialog(QDialog):
                 self.txt_pass.setText(cfg.get('password', ''))
                 self.txt_erp_dir.setText(cfg.get('remote_erp_dir', ''))
                 self.txt_bin_dir.setText(cfg.get('remote_bin_dir', ''))
-                
+
     def save_config(self):
         cfg = {
             'host': self.txt_host.text(),
@@ -102,34 +103,34 @@ class MaudeDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Select the UTC date range for MAUDE telemetry extraction (Time fixed at 08:00:00):"))
         form_layout = QFormLayout()
-        
+
         now = QDateTime.currentDateTime()
         default_start_date = now.date().addDays(-7)
         default_end_date = now.date()
-        
+
         self.start_dt = QDateTimeEdit(self)
         self.start_dt.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
         self.start_dt.setDateTime(QDateTime(default_start_date, QTime(8, 0, 0)))
         self.start_dt.setCalendarPopup(True)
         self.start_dt.dateChanged.connect(lambda d: self.start_dt.setTime(QTime(8, 0, 0)))
-        
+
         self.end_dt = QDateTimeEdit(self)
         self.end_dt.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
         self.end_dt.setDateTime(QDateTime(default_end_date, QTime(8, 0, 0)))
         self.end_dt.setCalendarPopup(True)
         self.end_dt.dateChanged.connect(lambda d: self.end_dt.setTime(QTime(8, 0, 0)))
-        
+
         form_layout.addRow("Start Time (UTC):", self.start_dt)
         form_layout.addRow("End Time (UTC):", self.end_dt)
         layout.addLayout(form_layout)
-        
+
         btn_layout = QHBoxLayout()
         self.btn_fetch = QPushButton("Queue MAUDE Query")
         self.btn_fetch.setStyleSheet("background-color: #2c3e50; color: white; font-weight: bold;")
         self.btn_fetch.clicked.connect(self.accept)
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.clicked.connect(self.reject)
-        
+
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_cancel)
         btn_layout.addWidget(self.btn_fetch)
@@ -173,14 +174,14 @@ class NrtSourceDialog(QDialog):
         self.setWindowTitle("Select Telemetry Source")
         self.resize(360, 200)
         self.selection = None  # 'local', 'maude', or 'sto'
-        
+
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("<b>Choose how to add telemetry data:</b>"))
-        
+
         self.btn_local = QPushButton("Select Local .nrt File(s)")
         self.btn_local.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 8px;")
         self.btn_local.clicked.connect(lambda: self.set_selection('local'))
-        
+
         self.btn_maude = QPushButton("MAUDE Database Query...")
         self.btn_maude.setStyleSheet("background-color: #2c3e50; color: white; font-weight: bold; padding: 8px;")
         self.btn_maude.clicked.connect(lambda: self.set_selection('maude'))
@@ -188,7 +189,7 @@ class NrtSourceDialog(QDialog):
         self.btn_sto = QPushButton("Extract from Master .STO File...")
         self.btn_sto.setStyleSheet("background-color: #16a085; color: white; font-weight: bold; padding: 8px;")
         self.btn_sto.clicked.connect(lambda: self.set_selection('sto'))
-        
+
         layout.addWidget(self.btn_local)
         layout.addWidget(self.btn_maude)
         layout.addWidget(self.btn_sto)
@@ -199,30 +200,37 @@ class NrtSourceDialog(QDialog):
 
 
 class StoContactSelectionDialog(QDialog):
-    """Interactive table dialog that forces historical reuse and dynamically adjusts caps based on available data."""
+    """Interactive table dialog enforcing a 15-contact limit based on exact STO intersection."""
     def __init__(self, supports, history_file, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Support Contacts")
         self.resize(800, 450)
-        
+
         self.supports = supports
         self.history_file = Path(history_file)
-        
-        self.raw_history = []
-        self.locked_windows = set()
-        self.unselected_historical = set()
-        self.selected_windows = []
-        self.is_rerun = False
+
+        self.history_dict = {}       # Master dictionary of all known contacts: key=(start, end)
+        self.locked_windows = set()  # Set of keys (start, end) for forced historical selections
+        self.selected_windows = []   # Final output payload
+        self.is_rerun = False        # Determines if we lock 15 or 8
 
         self.load_history()
         self.init_ui()
 
     def load_history(self):
-        """Reads the complete JSON ledger into memory for evaluation."""
+        """Reads the JSON ledger. Removes the legacy 'selected' boolean and maps times."""
         if self.history_file.exists():
             try:
                 with open(self.history_file, 'r') as f:
-                    self.raw_history = json.load(f)
+                    data = json.load(f)
+                    for item in data:
+                        # Clean up legacy 'selected' keys if they exist in older files
+                        if 'selected' in item:
+                            del item['selected']
+
+                        # Use exact start/end strings as the unique identifier key
+                        key = (item['support_start'], item['support_end'])
+                        self.history_dict[key] = item
             except Exception as e:
                 print(f"[WARNING] Could not read contact history: {e}")
 
@@ -242,91 +250,63 @@ class StoContactSelectionDialog(QDialog):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 
-        # 1. Determine 7-day threshold for "New" vs "Older"
-        if self.supports:
-            max_time = max(sup['end'] for sup in self.supports)
-            cutoff_time = max_time - timedelta(days=7)
-        else:
-            cutoff_time = QDateTime.currentDateTime().toPyDateTime()
+        # 1. Intersect STO with History to find valid overlaps
+        sto_hist_selected_keys = []
+        new_valid_keys = []
 
-        # 2. Extract strictly Historical data
-        selected_history = []
-        explicitly_ignored = set()
-
-        for item in self.raw_history:
-            win = (item['support_start'], item['support_end'])
-            if item.get('selected', False):
-                selected_history.append(item)
-            else:
-                explicitly_ignored.add(win)
-                
-        hist_tuples = set((x['support_start'], x['support_end']) for x in selected_history)
-        
-        # 3. Determine if this is a "Re-run" by checking if ANY valid New contacts exist
-        available_new_count = 0
         for sup in self.supports:
-            sup_start_doy = sup['start'].strftime('%Y:%j:%H:%M:%S')
-            sup_end_doy = sup['end'].strftime('%Y:%j:%H:%M:%S')
-            
-            is_historical = (sup_start_doy, sup_end_doy) in hist_tuples or (sup_start_doy, sup_end_doy) in explicitly_ignored
-            
-            if sup['is_valid'] and sup['end'] >= cutoff_time and not is_historical:
-                available_new_count += 1
+            key = (sup['start'].strftime('%Y:%j:%H:%M:%S'), sup['end'].strftime('%Y:%j:%H:%M:%S'))
 
-        self.is_rerun = (available_new_count == 0)
+            if key in self.history_dict:
+                hist_item = self.history_dict[key]
+                # Source of truth: select_start and select_end are not null
+                if hist_item.get('select_start') is not None and hist_item.get('select_end') is not None:
+                    sto_hist_selected_keys.append(key)
+            else:
+                if sup['is_valid']:
+                    new_valid_keys.append(key)
 
-        # 4. Enforce lock limits (15 if re-run, 8 if standard run)
+        # 2. Determine limits: If no new valid supports exist, it's a rerun (lock 15). Otherwise lock 8.
+        self.is_rerun = (len(new_valid_keys) == 0)
         lock_target = 15 if self.is_rerun else 8
-        selected_history.sort(key=lambda x: x['support_start'])
-        recent_target = selected_history[-lock_target:]
 
-        for item in recent_target:
-            self.locked_windows.add((item['support_start'], item['support_end']))
+        # 3. Sort chronologically and lock the targeted amount from the STO overlap
+        sto_hist_selected_keys.sort()
+        self.locked_windows = set(sto_hist_selected_keys[-lock_target:])
 
-        for item in selected_history[:-lock_target]:
-            self.unselected_historical.add((item['support_start'], item['support_end']))
-
-        self.unselected_historical.update(explicitly_ignored)
-
-        # 5. Populate Table
+        # 4. Populate Table
         for row, sup in enumerate(self.supports):
-            # Formatted text string: (Mon/DD/YYYY) YYYY:DDD:HH:MM:SS
             item_start = QTableWidgetItem(sup['start'].strftime('(%b/%d/%Y) %Y:%j:%H:%M:%S'))
             item_end = QTableWidgetItem(sup['end'].strftime('(%b/%d/%Y) %Y:%j:%H:%M:%S'))
             item_dur = QTableWidgetItem(f"{sup['duration_min']:.1f}")
-            
-            sup_start_doy = sup['start'].strftime('%Y:%j:%H:%M:%S')
-            sup_end_doy = sup['end'].strftime('%Y:%j:%H:%M:%S')
-            sup_tuple = (sup_start_doy, sup_end_doy)
-            
+
+            key = (sup['start'].strftime('%Y:%j:%H:%M:%S'), sup['end'].strftime('%Y:%j:%H:%M:%S'))
+
             is_valid = sup['is_valid']
-            is_locked = sup_tuple in self.locked_windows
-            is_unselected_hist = sup_tuple in self.unselected_historical
-            is_recent = sup['end'] >= cutoff_time
-            
-            # Text Configuration
-            if is_valid:
+            is_locked = key in self.locked_windows
+            is_historical = key in self.history_dict
+
+            # Determine Status and Window Text
+            if is_locked:
+                status_str = "Historical (Locked)"
                 window_str = f"{sup['window_start'].strftime('%H:%M')} - {sup['window_end'].strftime('%H:%M')}"
-                if is_locked:
-                    status_str = "Historical (Locked)"
-                elif is_unselected_hist:
-                    status_str = "Historical (Ignored)"
-                elif is_recent:
-                    status_str = "New"
-                else:
-                    status_str = "Older (Ignored)"
+            elif is_historical:
+                status_str = "Historical (Ignored)"
+                window_str = f"{sup['window_start'].strftime('%H:%M')} - {sup['window_end'].strftime('%H:%M')}" if is_valid else "Insufficient Duration"
+            elif is_valid:
+                status_str = "New"
+                window_str = f"{sup['window_start'].strftime('%H:%M')} - {sup['window_end'].strftime('%H:%M')}"
             else:
-                window_str = "Insufficient Duration"
                 status_str = "Invalid"
-                
+                window_str = "Insufficient Duration"
+
             item_win = QTableWidgetItem(window_str)
             item_status = QTableWidgetItem(status_str)
-            
+
             # Formatting & Interaction Rules
             if is_locked:
                 hist_bg = QBrush(QColor("#2c3e50")) # dark blue-gray
@@ -335,7 +315,7 @@ class StoContactSelectionDialog(QDialog):
                     item.setBackground(hist_bg)
                     item.setForeground(hist_fg)
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            elif not is_valid or is_unselected_hist or not is_recent:
+            elif not is_valid or (is_historical and not is_locked):
                 gray_brush = QBrush(QColor("gray"))
                 for item in (item_start, item_end, item_dur, item_win, item_status):
                     item.setForeground(gray_brush)
@@ -348,67 +328,52 @@ class StoContactSelectionDialog(QDialog):
             self.table.setItem(row, 4, item_status)
 
         layout.addWidget(self.table)
-        
         self.table.itemSelectionChanged.connect(self.check_selection_limit)
-        
+
         # Setup Select Button
         self.btn_select = QPushButton("Extract Contacts")
         self.btn_select.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 8px;")
         self.btn_select.clicked.connect(self.on_select)
         layout.addWidget(self.btn_select)
-        
+
         self.check_selection_limit()
-        
+
     def check_selection_limit(self):
         selected_rows = set(item.row() for item in self.table.selectedItems())
         new_count = len(selected_rows)
-        
-        # Safely count how many locked windows were successfully matched in this particular file
-        locked_count = 0
-        for sup in self.supports:
-            sup_start_doy = sup['start'].strftime('%Y:%j:%H:%M:%S')
-            sup_end_doy = sup['end'].strftime('%Y:%j:%H:%M:%S')
-            if (sup_start_doy, sup_end_doy) in self.locked_windows:
-                locked_count += 1
-                
-        limit = 0 if self.is_rerun else 7
-                    
-        if new_count > limit:
+
+        # Safely count how many locked windows were successfully matched
+        locked_count = len(self.locked_windows)
+        allowed_new = 15 - locked_count
+
+        if new_count > allowed_new:
             self.btn_select.setEnabled(False)
-            self.btn_select.setText(f"Selection Limit Exceeded ({new_count}/{limit} New Contacts)")
+            self.btn_select.setText(f"Selection Limit Exceeded ({new_count}/{allowed_new} New Contacts)")
             self.btn_select.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold; padding: 8px;")
         else:
             self.btn_select.setEnabled(True)
             self.btn_select.setText(f"Extract Contacts ({new_count} New, {locked_count} Historical)")
             self.btn_select.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 8px;")
-        
-    def on_select(self):
-        # 1. Gather all selections (Locked + Manual)
-        selected_rows = set(item.row() for item in self.table.selectedItems())
-        
-        for row, sup in enumerate(self.supports):
-            if not sup['is_valid']:
-                continue
-            sup_start_doy = sup['start'].strftime('%Y:%j:%H:%M:%S')
-            sup_end_doy = sup['end'].strftime('%Y:%j:%H:%M:%S')
-            
-            if (sup_start_doy, sup_end_doy) in self.locked_windows:
-                selected_rows.add(row)
 
-        if not selected_rows:
-            QMessageBox.warning(self, "Selection Error", "Please select at least one valid contact.")
+    def on_select(self):
+        # 1. Gather User Selections
+        user_selected_rows = set(item.row() for item in self.table.selectedItems())
+
+        # Ensure they have something valid to extract
+        if not user_selected_rows and not self.locked_windows:
+            QMessageBox.warning(self, "Selection Error", "No contacts are selected for extraction.")
             return
-            
-        # 2. Compile the JSON Ledger and Extraction Payloads
-        history_data = []
+
         self.selected_windows = []
-        
+
+        # 2. Iterate STO, build final payload, and update the Master History Dictionary
         for row, sup in enumerate(self.supports):
             sup_start_doy = sup['start'].strftime('%Y:%j:%H:%M:%S')
             sup_end_doy = sup['end'].strftime('%Y:%j:%H:%M:%S')
-            
-            is_selected = row in selected_rows
-            
+            key = (sup_start_doy, sup_end_doy)
+
+            is_selected = (key in self.locked_windows) or (row in user_selected_rows)
+
             if is_selected and sup['is_valid']:
                 win_start = sup['window_start']
                 win_end = sup['window_end']
@@ -418,24 +383,27 @@ class StoContactSelectionDialog(QDialog):
             else:
                 sel_start_str = None
                 sel_end_str = None
-                
-            # Log every support in the file to preserve the full chain of events
-            history_data.append({
+
+            # Create or overwrite the entry in the dictionary. 
+            # Note: "selected" boolean is completely removed per flow requirement.
+            self.history_dict[key] = {
                 'support_start': sup_start_doy,
                 'support_end': sup_end_doy,
                 'select_start': sel_start_str,
-                'select_end': sel_end_str,
-                'selected': is_selected
-            })
-        
-        # 3. Write Ledger to Output Directory
+                'select_end': sel_end_str
+            }
+
+        # 3. Convert dictionary to chronological list and save
+        history_list = list(self.history_dict.values())
+        history_list.sort(key=lambda x: x['support_start'])
+
         try:
             self.history_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.history_file, 'w') as f:
-                json.dump(history_data, f, indent=4)
+                json.dump(history_list, f, indent=4)
         except Exception as e:
             QMessageBox.warning(self, "Save Error", f"Could not save contact history:\n{e}")
-            
+
         self.accept()
 
 
@@ -620,3 +588,87 @@ class EmailPreviewDialog(QDialog):
             "body": self.txt_body.toPlainText(),
             "attachment": self.txt_attach.text()
         }
+
+
+class MaudeRefdataDialog(QDialog):
+    def __init__(self, dest_dis_path=None, nrt_df=None, parent=None):
+        super().__init__(parent)
+        self.dest_dis_path = dest_dis_path
+        self.nrt_df = nrt_df
+
+        self.setWindowTitle("Update MAUDE Refdata & SVN Commit")
+        self.resize(450, 300)
+        self.setup_ui()
+        self.check_auto_populate()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Input for the CLKHST filename
+        input_layout = QHBoxLayout()
+        self.file_label = QLabel("Source CLKHST File:")
+        self.file_input = QLineEdit()
+        self.file_input.setPlaceholderText("e.g., CLKHST_nnnn.dis")
+        input_layout.addWidget(self.file_label)
+        input_layout.addWidget(self.file_input)
+        layout.addLayout(input_layout)
+
+        # Status log
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        layout.addWidget(self.log_output)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        self.btn_run = QPushButton("Update & Commit")
+        self.btn_cancel = QPushButton("Close")
+
+        self.btn_run.clicked.connect(self.run_update_and_commit)
+        self.btn_cancel.clicked.connect(self.reject)
+
+        button_layout.addWidget(self.btn_run)
+        button_layout.addWidget(self.btn_cancel)
+        layout.addLayout(button_layout)
+
+    def check_auto_populate(self):
+        """Evaluate the provided binary path and update the UI accordingly."""
+        if self.dest_dis_path and Path(self.dest_dis_path).name:
+            # Extract filename without the .dis extension
+            filename = Path(self.dest_dis_path).stem 
+            self.file_input.setText(filename)
+            self.log_message(f"Auto-detected CLKHST filename: {filename}\n")
+        else:
+            self.log_message("No recent binary export detected.\n"
+                             "Please manually enter the CLKHST filename for the SVN commit message.\n")
+
+    def log_message(self, message):
+        """Append messages to the status text area."""
+        self.log_output.append(message)
+
+    def run_update_and_commit(self):
+        clkhst_name = self.file_input.text().strip()
+
+        if not clkhst_name:
+            QMessageBox.warning(self, "Input Error", "Please enter the CLKHST filename.")
+            return
+
+        self.btn_run.setEnabled(False)
+
+        try:
+            self.log_message(f"Updating MAUDE refdata from {clkhst_name}...")
+            make_commit = update_maude_refdata(self.nrt_df)
+
+            if make_commit:
+                self.log_message("Committing refdata.txt to SVN...")
+                commit_message = f"Added data from {clkhst_name}.dis"
+                self.log_message(f"Commit message: {commit_message}")
+                commit_refdata(commit_message)
+
+                self.log_message("Success: File updated and committed to SVN.")
+            else:
+                self.log_message("No new data to commit. refdata.txt remains unchanged.")
+
+        except Exception as e:
+            self.log_message(f"Error during process: {str(e)}")
+        finally:
+            self.btn_run.setEnabled(True)
