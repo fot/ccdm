@@ -6,9 +6,10 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
                              QDateTimeEdit, QFormLayout, QGroupBox, QLineEdit, QWidget,
                              QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 from PyQt6.QtCore import QDateTime, QTime, Qt
-from workers import SFTPWorker, SFTP_CONFIG_PATH
+from workers import SFTPWorker
 from reports import update_maude_refdata
 from svn import commit_refdata
+from misc import SFTP_CONFIG_PATH, SVN_CONFIG_PATH
 
 
 class SFTPConfigDialog(QDialog):
@@ -73,6 +74,62 @@ class SFTPConfigDialog(QDialog):
         }
         with open(self.config_path, 'w') as f:
             json.dump(cfg, f, indent=4)
+        self.accept()
+
+
+class SvnConfigDialog(QDialog):
+    """Dialog to configure and save SVN credentials."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("SVN Configuration")
+        self.resize(400, 150)
+        self.config_path = SVN_CONFIG_PATH
+
+        layout = QFormLayout(self)
+
+        self.txt_config_path = QLineEdit(str(self.config_path))
+        self.txt_config_path.setReadOnly(True)
+        self.txt_user = QLineEdit()
+        self.txt_pass = QLineEdit()
+        self.txt_pass.setEchoMode(QLineEdit.EchoMode.Password)
+
+        self.load_config()
+
+        layout.addRow("Config File Location:", self.txt_config_path)
+        layout.addRow("SVN Username:", self.txt_user)
+        layout.addRow("SVN Password:", self.txt_pass)
+
+        btn_layout = QHBoxLayout()
+        self.btn_save = QPushButton("Save Settings")
+        self.btn_save.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold;")
+        self.btn_save.clicked.connect(self.save_config)
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_save)
+
+        layout.addRow(btn_layout)
+
+    def load_config(self):
+        if self.config_path.exists():
+            with open(self.config_path, 'r') as f:
+                try:
+                    cfg = json.load(f)
+                    self.txt_user.setText(cfg.get('username', ''))
+                    self.txt_pass.setText(cfg.get('password', ''))
+                except json.JSONDecodeError:
+                    pass
+
+    def save_config(self):
+        cfg = {
+            'username': self.txt_user.text().strip(),
+            'password': self.txt_pass.text().strip()
+        }
+
+        # Ensure the directory exists before saving
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(self.config_path, 'w') as f:
+            json.dump(cfg, f, indent=4)
+
         self.accept()
 
 

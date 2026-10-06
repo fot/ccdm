@@ -4,15 +4,13 @@ from PyQt6.QtCore import QObject, pyqtSignal, QThread
 import pandas as pd
 
 from data_parsing import parse_sto_file
+from misc import SFTP_CONFIG_PATH
 
 try:
     import paramiko
     PARAMIKO_AVAILABLE = True
 except ImportError:
     PARAMIKO_AVAILABLE = False
-
-SFTP_CONFIG_PATH = Path.home() / ".clockapp_sftp_config.json"
-
 
 class ConsoleStream(QObject):
     """Intercepts sys.stdout for real-time GUI console updates."""

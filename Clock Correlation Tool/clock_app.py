@@ -16,17 +16,18 @@ from PyQt6.QtGui import QAction, QTextCursor, QIcon
 from PyQt6.QtCore import Qt
 
 # Local Imports
-from workers import ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker, SFTP_CONFIG_PATH
+from workers import ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker
 from data_parsing import parse_sto_contacts
 from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog,
                      BinaryExportDialog, ErpSourceDialog, NrtSourceDialog,
-                     StoContactSelectionDialog, EmailPreviewDialog, MaudeRefdataDialog)
+                     StoContactSelectionDialog, EmailPreviewDialog, MaudeRefdataDialog,
+                     SvnConfigDialog)
 from binary_convert import convert_dis_file, convert_dat_file
 from reports import (generate_trending_report, generate_correlation_report,
                      get_correlation_report_title, update_html_table,
                      draft_correlation_email)
 from plots import generate_residual_plot
-from misc import get_incremented_clkhst_name
+from misc import get_incremented_clkhst_name, SFTP_CONFIG_PATH
 
 
 class ClockDriftApp(QMainWindow):
@@ -74,9 +75,12 @@ class ClockDriftApp(QMainWindow):
         file_menu.addAction(action_exit)
 
         settings_menu = menubar.addMenu("Settings")
-        action_sftp_settings = QAction("SFTP Configuration...", self)
+        action_sftp_settings = QAction("SFTP Configuration", self)
         action_sftp_settings.triggered.connect(self.open_sftp_settings)
+        action_svn_settings  = QAction("SVN Configuration", self)
+        action_svn_settings.triggered.connect(self.open_svn_settings)
         settings_menu.addAction(action_sftp_settings)
+        settings_menu.addAction(action_svn_settings)
 
         view_menu = menubar.addMenu("View")
         for f in ["constants.json", "calibration_data.json", "dsn_data.json"]:
@@ -253,6 +257,10 @@ class ClockDriftApp(QMainWindow):
         
     def open_sftp_settings(self):
         dialog = SFTPConfigDialog(self)
+        dialog.exec()
+
+    def open_svn_settings(self):
+        dialog = SvnConfigDialog(self)
         dialog.exec()
 
     def select_output_directory(self):

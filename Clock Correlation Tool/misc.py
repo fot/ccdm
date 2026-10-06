@@ -4,6 +4,10 @@ from pathlib import Path
 from datetime import datetime
 
 
+SVN_CONFIG_PATH  = Path.home() / ".clockapp_svn_config.json"
+SFTP_CONFIG_PATH = Path.home() / ".clockapp_sftp_config.json"
+
+
 def get_constants():
     """Loads constants"""
     file_path= Path(__file__).parent.resolve() / "constants.json"
