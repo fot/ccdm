@@ -3,6 +3,7 @@ import json
 import shutil
 import mimetypes
 import html
+import traceback
 import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
@@ -564,7 +565,7 @@ class ClockDriftApp(QMainWindow):
                         print(f"[UI] Cleaned up temporary SFTP file: {Path(dialog.base_dat).name}")
 
             except Exception as e:
-                print(f"[ERROR] Binary export failed: {e}")
+                print(f"[ERROR] Binary export failed: {e}\n{traceback.format_exc()}")
 
     def draft_email(self):
         """Generates email text, locates the plot, displays the preview, and saves an .eml file."""
@@ -631,11 +632,12 @@ class ClockDriftApp(QMainWindow):
 
                     print(f"[UI] Email draft saved to {draft_path}")
 
-                except Exception as save_err:
-                    QMessageBox.warning(self, "Save Error", f"Failed to generate email file:\n{save_err}")
+                except Exception as e:
+                    QMessageBox.warning(self, "Save Error",
+                                        f"Failed to generate email file: {e}\n{traceback.format_exc()}")
 
         except Exception as e:
-            print(f"[ERROR] Failed to draft email: {e}")
+            print(f"[ERROR] Failed to draft email: {e}\n{traceback.format_exc()}")
 
     def generate_trending(self, autorun=False):
         trend_dir = Path("//noodle/fot/users/rhoover/Clock Tool Development Files")
@@ -667,7 +669,7 @@ class ClockDriftApp(QMainWindow):
                 generate_trending_report(self.nrt_df, Path(file_path))
                 print(f"[UI] Trending report successfully processed at {file_path}")
         except Exception as e:
-            print(f"[ERROR] Trending report generation failed: {e}")
+            print(f"[ERROR] Trending report generation failed: {e}\n{traceback.format_exc()}")
 
     def generate_correlation(self, autorun=False):
         try:
@@ -686,7 +688,7 @@ class ClockDriftApp(QMainWindow):
                                             Path(file_path).parent)
             print(f"[UI] Correlation report successfully generated.")
         except Exception as e:
-            print(f"[ERROR] Correlation report generation failed: {e}")
+            print(f"[ERROR] Correlation report generation failed: {e}\n{traceback.format_exc()}")
 
     def generate_plot(self, autorun=False):
         try:
@@ -703,7 +705,7 @@ class ClockDriftApp(QMainWindow):
                 generate_residual_plot(self.nrt_df, Path(file_path))
                 print(f"[UI] Plot successfully saved to {file_path}")
         except Exception as e:
-            print(f"[ERROR] Plot generation failed: {e}")
+            print(f"[ERROR] Plot generation failed: {e}\n{traceback.format_exc()}")
 
     def update_html_record_table(self):
         try:
@@ -712,7 +714,7 @@ class ClockDriftApp(QMainWindow):
             update_html_table(self.nrt_df, inputpath / f"Clock_Correlation{now.strftime('%Y')}.htm")
             print(f"[UI] HTML Table successfully updated.")
         except Exception as e:
-            print(f"[ERROR] HTML table update failed: {e}")
+            print(f"[ERROR] HTML table update failed: {e}\n{traceback.format_exc()}")
 
     def maude_ref_update(self):
         try:
@@ -723,7 +725,7 @@ class ClockDriftApp(QMainWindow):
                                         self.nrt_df, parent = self)
             dialog.exec()
         except Exception as e:
-            print(f"[ERROR] Failed to open MAUDE update dialog: {e}")
+            print(f"[ERROR] Failed to open MAUDE update dialog: {e}\n{traceback.format_exc()}")
 
     def run_all_outputs(self):
         try:
@@ -739,7 +741,7 @@ class ClockDriftApp(QMainWindow):
 
             print("[UI] Batch output generation complete.")
         except Exception as e:
-            print(f"[ERROR] Batch output execution failed: {e}")
+            print(f"[ERROR] Batch output execution failed: {e}\n{traceback.format_exc()}")
 
     def export_csv(self):
         filetitle = get_correlation_report_title(self.nrt_df)
@@ -749,7 +751,7 @@ class ClockDriftApp(QMainWindow):
                 self.nrt_df.to_csv(file_path, index=False)
                 print(f"[UI] Raw Data exported to {file_path}")
             except Exception as e:
-                print(f"[ERROR] CSV Export failed: {e}")
+                print(f"[ERROR] CSV Export failed: {e}\n{traceback.format_exc()}")
 
     def closeEvent(self, event):
         reply = QMessageBox.question(

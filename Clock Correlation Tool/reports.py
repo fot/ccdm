@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from openpyxl import load_workbook
@@ -46,7 +47,7 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=
 
     # Pull the global standard deviations and variance from the DataFrame
     global_variance = nrt_df['global_variance'].iloc[0]
-    global_std_rate = nrt_df['global_std_dev_utc0'].iloc[0]
+    global_std_rate = nrt_df['global_std_dev_rate'].iloc[0]
 
     # 1. Extract Global Anchor Data
     first_vcdu = nrt_df['vcdu'].iloc[0]
@@ -61,7 +62,7 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=
 
     # Safely extract the drift standard deviation (or default to 0.0 if missing)
     if 'global_std_dev_drift' in nrt_df.columns:
-        global_std_drift = nrt_df['global_std_dev_drift'].iloc[0] 
+        global_std_drift = nrt_df['global_std_dev_drift'].iloc[0]
     else:
         global_std_drift = 0.0
 
@@ -236,16 +237,18 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=
         # Variance to Microseconds
         p_rms_resid = np.sqrt(group['resid_variance'].iloc[0]) * 1e6
 
-        # Extract Max and Min residuals dynamically from the new quadratic residual array
-        if 'resid_musec' in group.columns:
-            p_maxres = group['resid_musec'].max()
-            p_minres = group['resid_musec'].min()
+        # Extract Max and Min global residuals
+        if 'global_resid_musec' in group.columns:
+            p_maxres = group['global_resid_musec'].max()
+            p_minres = group['global_resid_musec'].min()
         else:
-            p_maxres = 0.0
-            p_minres = 0.0
+            p_maxres, p_minres = 0.0, 0.0
 
-        # TimeAdj placeholder (Usually 0.0 unless there was an explicit ground command shift)
-        p_timeadj = 0.0
+        # TimeAdj is first adjusted propagation time for the pass, if available
+        if 'adjusted_propogation_time' in group.columns:
+            p_timeadj = group['adjusted_propogation_time'].iloc[0]
+        else:
+            p_timeadj = 0.0
 
         # Formatted with precise string padding to match the legacy column alignment
         write(f"{p_reftime_str:<24} {int(p_refcnt):>9d} {p_clkrate:>17.13f} {p_clkdrift:>12.3E} "
@@ -290,17 +293,19 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=
         raw_vcdu = group['vcdu'].iloc[0]
         rollover_offset += 2**24 if previous_raw_vcdu > raw_vcdu else 0
         previous_raw_vcdu = raw_vcdu
-        
+
         p_refcnt = raw_vcdu + rollover_offset
         deltacnt = p_refcnt - first_vcdu
 
-        # NOTE: "deltasec" in the legacy text often refers to the scaled time delta or  
         # the difference between the primary fit and combined fit. Update to your specific column.
-        p_deltasec = group['primary_delta_sec'].iloc[0] if 'primary_delta_sec' in group.columns else 0.0
-        
-        if 'quadratic_resid_musec' in group.columns:
-            p_maxres = group['quadratic_resid_musec'].max()
-            p_minres = group['quadratic_resid_musec'].min()
+        if {'resid_usec', 'global_resid_musec'}.issubset(group.columns):
+            p_deltasec = group['resid_usec'].iloc[0] - group['global_resid_musec'].iloc[0]
+        else:
+            p_deltasec = 0.0
+
+        if 'global_resid_musec' in group.columns:
+            p_maxres = group['global_resid_musec'].max()
+            p_minres = group['global_resid_musec'].min()
         else:
             p_maxres, p_minres = 0.0, 0.0
 
@@ -311,12 +316,11 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=
     # --- SECTION 3.7: OVERALL RESIDUALS FOOTER
     # =========================================================
     # Calculate overall RMS and Max Absolute Residual across the entire dataset
-    if 'quadratic_resid_musec' in nrt_df.columns:
-        overall_rms = np.sqrt((nrt_df['quadratic_resid_musec']**2).mean())
-        max_abs_resid = nrt_df['quadratic_resid_musec'].abs().max()
+    if 'global_resid_musec' in nrt_df.columns:
+        overall_rms = np.sqrt((nrt_df['global_resid_musec']**2).mean())
+        max_abs_resid = nrt_df['global_resid_musec'].abs().max()
     else:
-        overall_rms = 0.0
-        max_abs_resid = 0.0
+        overall_rms, max_abs_resid = 0.0, 0.0
 
     # Added severe right-padding to match the gap in the legacy image footer
     write(f"RMS residual = {overall_rms:>11.3f}, Maximum abs(residual) = {max_abs_resid:>11.3f} microsec\n")
@@ -347,7 +351,7 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=
     counts_per_day = 86400.0 / global_rate
 
     # Propagate exactly 30 days as requested
-    total_days_to_project = 30 
+    total_days_to_project = 30
 
     # Extract the 3x3 covariance matrix from the dataframe.
     if 'global_covariance_matrix' in nrt_df.columns:
@@ -431,7 +435,8 @@ def generate_trending_report(nrt_df, output_path=None):
 
                 wb.close()
             except Exception as e:
-                print(f"[ERROR] Could not read Excel file to find max row/time: {e}. Aborting.")
+                print(f"[ERROR] Could not read Excel file to find max row/time: Aborting. "
+                      f"{e}\n{traceback.format_exc()}")
                 return pd.DataFrame()
 
     # 2. Process new passes and inject Live Excel Formulas
@@ -586,7 +591,7 @@ def update_html_table(df, filepath):
             "A"
         ]
     except Exception as e:
-        error_callback(f"Data extraction failed: {repr(e)}")
+        error_callback(f"Data extraction failed: {e}\n{traceback.format_exc()}")
         new_values = None
 
     # 5. Inject the new values into the cloned HTML elements
@@ -607,7 +612,8 @@ def update_html_table(df, filepath):
             with open(filepath, "w", encoding="utf-16") as file:
                 file.write(str(soup))
         except Exception as e:
-            error_callback(f"Unable to append data to HTML table, skipping...: {repr(e)}")
+            error_callback(f"Unable to append data to HTML table, skipping...: {e}\n{traceback.format_exc()}")
+
 
 
 def draft_correlation_email(self):

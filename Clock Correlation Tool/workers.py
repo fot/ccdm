@@ -1,4 +1,5 @@
 import json
+import traceback
 from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 import pandas as pd
@@ -104,7 +105,7 @@ class SFTPWorker(QThread):
 
             self.finished.emit(str(local_path))
         except Exception as e:
-            self.error.emit(f"SFTP Error: {str(e)}")
+            self.error.emit(f"SFTP Error: {e}\n{traceback.format_exc()}")
 
 
 class PipelineWorker(QThread):
@@ -147,7 +148,6 @@ class PipelineWorker(QThread):
             self.finished.emit(result_df)
 
         except Exception as e:
-            import traceback
             self.error.emit(f"{str(e)}\n{traceback.format_exc()}")
 
 
@@ -176,7 +176,7 @@ class StoParserWorker(QThread):
                 self.finished.emit(df)
 
         except Exception as e:
-            self.error.emit(str(e))
+            self.error.emit(f"{str(e)}\n{traceback.format_exc()}")
 
     def update_progress(self, val):
         """Emits the progress back to the main thread. Returns False to abort if cancelled."""

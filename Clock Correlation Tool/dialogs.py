@@ -1,4 +1,5 @@
 import json
+import traceback
 from pathlib import Path
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -147,7 +148,7 @@ class JsonViewerDialog(QDialog):
             with open(filepath, 'r') as f:
                 text_edit.setText(f.read())
         except Exception as e:
-            text_edit.setText(f"[ERROR] Could not read {filepath.name}:\n{str(e)}")
+            text_edit.setText(f"[ERROR] Could not read {filepath.name} {e}\n{traceback.format_exc()}")
         layout.addWidget(text_edit)
 
 
@@ -289,7 +290,7 @@ class StoContactSelectionDialog(QDialog):
                         key = (item['support_start'], item['support_end'])
                         self.history_dict[key] = item
             except Exception as e:
-                print(f"[WARNING] Could not read contact history: {e}")
+                print(f"[WARNING] Could not read contact history: {e}\n{traceback.format_exc()}")
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -459,7 +460,8 @@ class StoContactSelectionDialog(QDialog):
             with open(self.history_file, 'w') as f:
                 json.dump(history_list, f, indent=4)
         except Exception as e:
-            QMessageBox.warning(self, "Save Error", f"Could not save contact history:\n{e}")
+            QMessageBox.warning(self, "Save Error",
+                                f"Could not save contact history:\n {e}\n{traceback.format_exc()}")
 
         self.accept()
 
@@ -718,7 +720,7 @@ class MaudeRefdataDialog(QDialog):
                 self.log_message("No new data to update in refdata.txt. SVN commit is disabled.")
 
         except Exception as e:
-            self.log_message(f"Error updating refdata: {str(e)}")
+            self.log_message(f"Error updating refdata: {e}\n{traceback.format_exc()}")
             self.make_commit = False
             self.btn_commit.setEnabled(False)
 
@@ -743,4 +745,4 @@ class MaudeRefdataDialog(QDialog):
                 self.log_message("No new data to commit. refdata.txt remains unchanged.")
 
         except Exception as e:
-            self.log_message(f"Error during process: {str(e)}")
+            self.log_message(f"Error during process: {e}\n{traceback.format_exc()}")
