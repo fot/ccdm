@@ -87,7 +87,7 @@ class ClockDriftApp(QMainWindow):
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
+
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(6)
@@ -217,7 +217,7 @@ class ClockDriftApp(QMainWindow):
                                self.btn_run_all, self.btn_out_dir, self.btn_email]
 
         for btn in self.output_buttons:
-            btn.setEnabled(False) 
+            btn.setEnabled(False)
 
         main_layout.addWidget(self.output_group)
 
@@ -226,7 +226,7 @@ class ClockDriftApp(QMainWindow):
         self.txt_output = QTextEdit()
         self.txt_output.setReadOnly(True)
         self.txt_output.setStyleSheet("font-family: Consolas, monospace; background-color: #1e1e1e; color: #d4d4d4;")
-        
+
         main_layout.addWidget(self.txt_output, stretch=1)
 
     def check_ready_state(self):
@@ -744,5 +744,17 @@ class ClockDriftApp(QMainWindow):
                 print(f"[ERROR] CSV Export failed: {e}")
 
     def closeEvent(self, event):
-        sys.stdout = sys.__stdout__
-        super().closeEvent(event)
+        reply = QMessageBox.question(
+            self,
+            "Confirm Exit",
+            "Are you sure you want to exit the Clock Correlation Tool?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Restore standard output before closing, keeping your original logic
+            sys.stdout = sys.__stdout__ 
+            event.accept()
+        else:
+            event.ignore()
