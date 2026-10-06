@@ -620,13 +620,18 @@ class MaudeRefdataDialog(QDialog):
 
         # Buttons
         button_layout = QHBoxLayout()
-        self.btn_run = QPushButton("Update & Commit")
+        self.btn_update = QPushButton("Update refdata.txt")
+        self.btn_commit = QPushButton("SVN Commit")
         self.btn_cancel = QPushButton("Close")
 
-        self.btn_run.clicked.connect(self.run_update_and_commit)
+        self.btn_update.clicked.connect(self.update_refdata)
+        self.btn_commit.clicked.connect(self.svn_commit)
         self.btn_cancel.clicked.connect(self.reject)
 
-        button_layout.addWidget(self.btn_run)
+        self.btn_commit.setEnabled(False)
+
+        button_layout.addWidget(self.btn_update)
+        button_layout.addWidget(self.btn_commit)
         button_layout.addWidget(self.btn_cancel)
         layout.addLayout(button_layout)
 
@@ -645,20 +650,32 @@ class MaudeRefdataDialog(QDialog):
         """Append messages to the status text area."""
         self.log_output.append(message)
 
-    def run_update_and_commit(self):
+    def update_refdata(self):
+        try:
+            self.make_commit = update_maude_refdata(self.nrt_df)
+
+            if self.make_commit:
+                self.btn_commit.setEnabled(True)
+                self.log_message("refdata.txt updated successfully. Ready for SVN commit.")
+            else:
+                self.log_message("No new data to update in refdata.txt. SVN commit is disabled.")
+
+        except Exception as e:
+            self.log_message(f"Error updating refdata: {str(e)}")
+            self.make_commit = False
+            self.btn_commit.setEnabled(False)
+
+    def svn_commit(self):
         clkhst_name = self.file_input.text().strip()
 
         if not clkhst_name:
             QMessageBox.warning(self, "Input Error", "Please enter the CLKHST filename.")
             return
 
-        self.btn_run.setEnabled(False)
-
         try:
             self.log_message(f"Updating MAUDE refdata from {clkhst_name}...")
-            make_commit = update_maude_refdata(self.nrt_df)
 
-            if make_commit:
+            if self.make_commit:
                 self.log_message("Committing refdata.txt to SVN...")
                 commit_message = f"Added data from {clkhst_name}.dis"
                 self.log_message(f"Commit message: {commit_message}")
@@ -670,5 +687,3 @@ class MaudeRefdataDialog(QDialog):
 
         except Exception as e:
             self.log_message(f"Error during process: {str(e)}")
-        finally:
-            self.btn_run.setEnabled(True)

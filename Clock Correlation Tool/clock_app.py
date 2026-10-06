@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QFileDialog, QTextEdit, QMessageBox, QCheckBox,
                              QLineEdit, QGroupBox, QProgressDialog)
-from PyQt6.QtGui import QAction, QTextCursor
+from PyQt6.QtGui import QAction, QTextCursor, QIcon
 from PyQt6.QtCore import Qt
 
 # Local Imports
@@ -33,6 +33,7 @@ class ClockDriftApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Clock Correlation Tool")
+        self.setWindowIcon(QIcon(str(Path(__file__).parent / "app_icon.ico")))
         self.resize(1200, 800)
 
         self.erp_file = None
