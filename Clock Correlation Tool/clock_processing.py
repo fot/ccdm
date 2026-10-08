@@ -5,9 +5,7 @@ from astropy.time import Time
 from astropy import units as u
 
 # Local Imports
-from misc import (
-    get_constants, load_calib_database, log_callback, is_consecutive_check
-)
+from misc import (get_constants, load_calib_database, log_callback, is_consecutive_check, get_bundled_path)
 from math_functions import (get_ground_station_position, ephemeris_interpolator,
                             two_pass_coefficient_solver, legacy_coefficient_solver)
 
@@ -38,7 +36,7 @@ def calculate_clock_drift(erp_df, nrt_df, legacy_mode=True):
     erp_velocities = erp_df[['vel-x', 'vel-y', 'vel-z']].values
 
     # Load Hardware Delay Calibration Matrix
-    calib_db = load_calib_database(Path(__file__).parent.resolve() / "calibration_data.json")
+    calib_db = load_calib_database(get_bundled_path("calibration_data.json"))
     calib_df = pd.DataFrame.from_dict(calib_db, orient='index')
     calib_df.index.name = 'bit_rate_code'
     calib_df = calib_df.reset_index()
@@ -152,11 +150,10 @@ def daily_trending(nrt_df, legacy_mode=False):
         pass_delta_vcdu = pass_vcdus - pass_vcdus[0]
         pass_delta_tcs = pass_tsc - pass_tsc[0]
 
-        # if legacy_mode:
-        #     results = legacy_coefficient_solver(pass_delta_vcdu, pass_delta_tcs, scale=scale)
-        # else:
-        #     results = two_pass_coefficient_solver(pass_delta_vcdu, pass_delta_tcs, scale=scale)
-        results = legacy_coefficient_solver(pass_delta_vcdu, pass_delta_tcs, scale=scale)
+        if legacy_mode:
+            results = legacy_coefficient_solver(pass_delta_vcdu, pass_delta_tcs, scale=scale)
+        else:
+            results = two_pass_coefficient_solver(pass_delta_vcdu, pass_delta_tcs, scale=scale)
 
         c1 = results["coeffs"]["T0"] + pass_tsc[0]
         c2 = results["coeffs"]["R0"]

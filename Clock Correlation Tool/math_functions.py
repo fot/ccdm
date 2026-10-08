@@ -5,15 +5,12 @@ from astropy.time import Time
 from astropy.coordinates import EarthLocation
 import astropy.units as u
 
-from misc import get_constants, load_dsn_database, log_callback
+from misc import get_constants, load_dsn_database, log_callback, get_bundled_path
 
 
 # Import Constants
 constants = get_constants()
 JD_1985 = constants['JD_1985']
-# WGS84_A = constants['WGS84_A'] # 6378.137 (Semi-major axis in km)
-# WGS84_E2 = constants['WGS84_E2'] # 1.0 / 298.257223563
-# WGS84_FLATTENING = constants['WGS84_FLATTENING'] # 2.0 * WGS84_FLATTENING - WGS84_FLATTENING**2
 
 
 def get_ground_station_position(time_array, dss_codes, time_offsets=None, legacy=True):
@@ -65,7 +62,7 @@ def get_ground_station_position(time_array, dss_codes, time_offsets=None, legacy
         GHA = GHA0 + 1.00273790935 * twopi * (sec_of_day / 86400.0)
         return GHA % twopi
 
-    dsn_db = load_dsn_database(Path(__file__).parent.resolve() / "dsn_data.json")
+    dsn_db = load_dsn_database(get_bundled_path("dsn_data.json"))
 
     # Pre-allocate output arrays
     gs_positions = np.zeros((len(time_array), 3), dtype=np.float64)

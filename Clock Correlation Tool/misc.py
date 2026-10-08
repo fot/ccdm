@@ -1,5 +1,6 @@
 import json
 import re
+import sys
 from pathlib import Path
 from datetime import datetime
 
@@ -8,9 +9,15 @@ SVN_CONFIG_PATH  = Path.home() / ".clockapp_svn_config.json"
 SFTP_CONFIG_PATH = Path.home() / ".clockapp_sftp_config.json"
 
 
+def get_bundled_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS) / relative_path
+    return Path(__file__).parent / relative_path
+
+
 def get_constants():
     """Loads constants"""
-    file_path= Path(__file__).parent.resolve() / "constants.json"
+    file_path= get_bundled_path("constants.json")
     try:
         with open(file_path, 'r') as f:
             return json.load(f)
