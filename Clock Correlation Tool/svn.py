@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from misc import get_bundled_path
+
 # Local variables for configuration
 SVN_CONFIG_PATH  = Path.home() / ".clockapp_svn_config.json"
 
@@ -45,7 +47,7 @@ def commit_refdata(commit_message):
         raise FileNotFoundError(f"Target file for SVN commit does not exist: {SVN_FILE_TARGET}")
 
     # 4. Construct the SVN commit command
-    svn_executable = Path(__file__).resolve().parent / "svn-tools/bin/svn.exe"
+    svn_executable = get_bundled_path("svn-tools/bin/svn.exe")
 
     cmd = [
         svn_executable, "commit", str(SVN_FILE_TARGET),

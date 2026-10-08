@@ -7,3 +7,4 @@ lxml>=4.6.0
 paramiko>=2.7.0
 openpyxl>=3.0.0
 scipy>=1.6.0
+plotly>=5.0.0
