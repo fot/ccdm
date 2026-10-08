@@ -46,7 +46,9 @@ def parse_erp_file(filepath):
                     'vel-z': np.float64(parts[6])
                 })
 
-    log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
+    if len(data) > 0:
+        log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
+
     return pd.DataFrame(data)
 
 
@@ -77,7 +79,9 @@ def parse_nrt_file(filepath):
             except (IndexError, ValueError):
                 continue
 
-    log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
+    if len(data) > 0:
+        log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
+
     return pd.DataFrame(data)
 
 
@@ -97,7 +101,7 @@ def parse_sto_file(filepath, progress_callback=None):
             if progress_callback and count % 2500 == 0:
                 progress_pct = int((processed_bytes / total_bytes) * 100)
                 if progress_pct >= 100:
-                    progress_pct = 99 
+                    progress_pct = 99
 
                 if progress_callback(progress_pct) is False:
                     log_callback(f"Parsing of {Path(filepath).name} was cancelled by user.")
@@ -128,7 +132,12 @@ def parse_sto_file(filepath, progress_callback=None):
             except (IndexError, ValueError):
                 continue
 
-    log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
+        if progress_callback:
+            progress_callback(100)
+
+    if len(data) > 0:
+        log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
+
     return pd.DataFrame(data)
 
 

@@ -4,7 +4,8 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 import pandas as pd
 
-from data_parsing import parse_sto_file
+from data_parsing import parse_erp_file, parse_nrt_file, parse_sto_file
+from clock_processing import calculate_clock_drift
 from misc import SFTP_CONFIG_PATH
 
 try:
@@ -122,9 +123,6 @@ class PipelineWorker(QThread):
 
     def run(self):
         try:
-            from data_parsing import parse_erp_file, parse_nrt_file
-            from clock_processing import calculate_clock_drift
-
             # 1. Parse Ephemeris Data
             erp_df = parse_erp_file(self.erp_file)
 
@@ -132,6 +130,7 @@ class PipelineWorker(QThread):
             nrt_dataframes = []
 
             if self.telemetry_df is not None:
+                print(f"[UI] Passing {len(self.telemetry_df)} sliced STO data points into the correlation engine...")
                 nrt_dataframes.append(self.telemetry_df)
 
             for path in self.nrt_files:

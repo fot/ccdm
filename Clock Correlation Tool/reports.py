@@ -52,13 +52,17 @@ def generate_correlation_report(nrt_df, nrt_paths=None, erp_path=None, sto_path=
     # 1. Extract Global Anchor Data
     first_vcdu = nrt_df['vcdu'].iloc[0]
     first_abs_time = nrt_df['adjusted_ground_time'].iloc[0]
-    first_utc = nrt_df['datetime'].iloc[0]
-    last_utc =  nrt_df['datetime'].iloc[-1]
+    first_utc = nrt_df['astropy_time'].iloc[0]
+    last_utc =  nrt_df['astropy_time'].iloc[-1]
 
     global_resid_sec = nrt_df['global_resid_musec'] * 1e6
 
     # Safely define span_days for both the summary printout and the uncertainty projection loop
-    span_days = (last_utc - first_utc).total_seconds() / 86400.0
+    time_diff = last_utc - first_utc
+    if hasattr(time_diff, 'sec'):
+        span_days = time_diff.sec / 86400.0
+    else:
+        span_days = time_diff.total_seconds() / 86400.0
 
     # Safely extract the drift standard deviation (or default to 0.0 if missing)
     if 'global_std_dev_drift' in nrt_df.columns:
@@ -574,7 +578,9 @@ def update_html_table(df, filepath):
         # Extract datetime directly from the astropy_time object to preserve fractional seconds
         ref_time = df['astropy_time'].iloc[0].datetime.strftime('%Y:%j:%H:%M:%S.%f')
         ref_count = df['corrected_vcdu'].iloc[0]
-        span_days = (df['astropy_time'].iloc[-1] - df['astropy_time'].iloc[0]).sec / 86400.0
+
+        time_diff = df['astropy_time'].iloc[-1] - df['astropy_time'].iloc[0]
+        span_days = time_diff.sec / 86400.0 if hasattr(time_diff, 'sec') else time_diff.total_seconds() / 86400.0
 
         rate_str = f"{global_c2:.12f}"
 
@@ -615,18 +621,17 @@ def update_html_table(df, filepath):
             error_callback(f"Unable to append data to HTML table, skipping...: {e}\n{traceback.format_exc()}")
 
 
-
 def draft_correlation_email(self):
-    """Generates the subject and body template for the correlation email with strict alignment."""
-    nrt_df = self.nrt_df
+    """Generates the subject and HTML body template for the correlation email."""
+    df = self.nrt_df
 
     # Locate the correct time column
-    if 'datetime' in nrt_df.columns:
-        time_col = nrt_df['datetime']
-    elif isinstance(nrt_df.index, pd.DatetimeIndex):
-        time_col = pd.Series(nrt_df.index)
+    if 'astropy_time' in df.columns:
+        time_col = [t.datetime if hasattr(t, 'datetime') else pd.to_datetime(t) for t in df['astropy_time']]
+    elif isinstance(df.index, pd.DatetimeIndex):
+        time_col = pd.Series(df.index)
     else:
-        time_col = nrt_df.iloc[:, 0]
+        time_col = df.iloc[:, 0]
 
     t_min = pd.to_datetime(time_col).min()
     t_max = pd.to_datetime(time_col).max()
@@ -635,46 +640,94 @@ def draft_correlation_email(self):
     filename = Path(dest_dis).stem
     subject = f"Clock History File {filename}"
 
-    ref_time = nrt_df['astropy_time'].iloc[0].strftime('%Y:%j:%H:%M:%S.%f')
-    ref_count = nrt_df['corrected_vcdu'].iloc[0]
-    span_days = (nrt_df['astropy_time'].iloc[-1] - nrt_df['astropy_time'].iloc[0]).sec / 86400.0
-    global_resid = nrt_df['global_resid_musec']
+    # Format to match the 3 decimal places seen in legacy output (e.g., .405)
+    ref_time = df['astropy_time'].iloc[0].strftime('%Y:%j:%H:%M:%S.%f')[:-3]
+    ref_count = df['corrected_vcdu'].iloc[0]
+
+    # Safely calculate span days using the standard datetime column
+    time_diff = df['astropy_time'].iloc[-1] - df['astropy_time'].iloc[0]
+    span_days = time_diff.sec / 86400.0 if hasattr(time_diff, 'sec') else time_diff.total_seconds() / 86400.0
+
+    global_resid = df['global_resid_musec']
     rms_resid = np.sqrt(np.mean(global_resid**2))
     max_resid = np.max(global_resid)
 
-    global_c2 = nrt_df['global_rate'].iloc[0]
-    global_c3 = nrt_df['global_drift'].iloc[0]
+    global_c2 = df['global_rate'].iloc[0]
+    global_c3 = df['global_drift'].iloc[0]
 
     rate_str = f"{global_c2:.12f}"
-    drift_str = f"{global_c3:.3e}"
+    drift_str = f"{global_c3:.3e}"  # Lowercase 'e' matching the legacy output
 
-    # Use explicit column sizing and table width constants to guarantee alignment
-    label_width = 37
-
-    body = (
-        f"{'New clock correlation history file:':<{label_width}}{filename}\n"
-        f"{'Interval start time:':<{label_width}}{t_min.strftime('%Y:%j:%H:%M:%S')}\n"
-        f"{'Interval stop time:':<{label_width}}{t_max.strftime('%Y:%j:%H:%M:%S')}\n"
-        f"\n"
-        f"{'Supports:':<{label_width}}15 at 1024 kbps\n"
-        f"\n"
-        f"{'RMS residual of the quadratic fit:':<{label_width}}{rms_resid:.2f} microsecond\n"
-        f"{'Maximum residual:':<{label_width}}{max_resid:.2f} microsecond\n"
-        f"{'Baselined characteristics:':<{label_width}}CHARACTERIS_03JUNE26\n"
-        f"\n"
-        f"Notes:\n"
-        f"   1.  ALL SUPPORTS WERE PROCESSED USING A DEFINITIVE EPHEMERIS\n"
-        f"   2.  NORMAL CLOCK PROCESSING PERFORMED ON TUESDAYS, WEDNESDAYS, OR THURSDAYS\n"
-        f"\n"
-        f"The {filename} file has been copied to ODE_Transfer on lucky.\n"
-        f"\n"
-        f"Newest results and results not yet posted to the web archive are listed below.\n"
-        f"{'-' * 76}\n"
-        f"{'ref time (UTC)':<21} | {'refcnt':<12} | {'rate (sec/cnt)':<22} | "
-        f"{'drift (sec/cnt^2)':<20} | {'span (days)':<12}\n"
-        f"{ref_time:<20} | {ref_count:<12.0f} | {rate_str:<22} | "
-        f"{drift_str:<20} | {f'{span_days:.1f} days':<12}"
-    )
+    # Build the HTML body using borderless tables to guarantee proportional Arial alignment 
+    # while perfectly mimicking the legacy text-file layout.
+    body = f"""
+    <div style="font-family: Arial, sans-serif; font-size: 11pt; color: #000000; line-height: 1.3;">
+        <table style="font-family: Arial, sans-serif; font-size: 11pt; border-collapse: collapse; margin-bottom: 15px;">
+            <tr>
+                <td style="width: 270px; padding-bottom: 2px;">New clock correlation history file:</td>
+                <td style="padding-left: 35px; padding-bottom: 2px;">{filename}</td>
+            </tr>
+            <tr>
+                <td style="padding-bottom: 2px;">Interval start time:</td>
+                <td style="padding-left: 35px; padding-bottom: 2px;">{t_min.strftime('%Y:%j:%H:%M:%S')}</td>
+            </tr>
+            <tr>
+                <td>Interval stop time:</td>
+                <td style="padding-left: 35px;">{t_max.strftime('%Y:%j:%H:%M:%S')}</td>
+            </tr>
+            <tr><td colspan="2">&nbsp;</td></tr>
+            <tr>
+                <td>Supports:</td>
+                <td style="padding-left: 35px;">15 at 1024 kbps</td>
+            </tr>
+            <tr><td colspan="2">&nbsp;</td></tr>
+            <tr>
+                <td style="padding-bottom: 2px;">RMS residual of the quadratic fit:</td>
+                <td style="padding-left: 35px; padding-bottom: 2px;">{rms_resid:.2f} microsecond</td>
+            </tr>
+            <tr>
+                <td style="padding-bottom: 2px;">Maximum residual:</td>
+                <td style="padding-left: 35px; padding-bottom: 2px;">{max_resid:.2f} microsecond</td>
+            </tr>
+            <tr>
+                <td>Baselined characteristics:</td>
+                <td style="padding-left: 35px;">CHARACTERIS_03JUNE26</td>
+            </tr>
+        </table>
+        
+        <div style="margin-bottom: 15px;">
+            Notes:<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;1.&nbsp;&nbsp;ALL SUPPORTS WERE PROCESSED USING A DEFINITIVE EPHEMERIS<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;2.&nbsp;&nbsp;NORMAL CLOCK PROCESSING PERFORMED ON TUESDAYS, WEDNESDAYS, OR THURSDAYS
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+            The {filename} file has been copied to ODE_Transfer on lucky.
+        </div>
+        
+        <div style="margin-bottom: 3px;">
+            Newest results and results not yet posted to the web archive are listed below.<br>
+            --------------------------------------------------------------------------------------------------------------
+        </div>
+        
+        <table style="font-family: Arial, sans-serif; font-size: 11pt; border-collapse: collapse; text-align: left;">
+            <tr>
+                <td style="padding-right: 15px;">ref time (UTC)</td>
+                <td>|&nbsp;</td><td style="padding-right: 15px;">refcnt</td>
+                <td>|&nbsp;</td><td style="padding-right: 15px;">rate (sec/cnt)</td>
+                <td>|&nbsp;</td><td style="padding-right: 15px;">drift (sec/cnt^2)</td>
+                <td>|&nbsp;</td><td>span (days)</td>
+            </tr>
+            <tr>
+                <td style="padding-right: 15px;">{ref_time}</td>
+                <td>|&nbsp;</td><td style="padding-right: 15px;">{ref_count:.0f}</td>
+                <td>|&nbsp;</td><td style="padding-right: 15px;">{rate_str}</td>
+                <td>|&nbsp;</td><td style="padding-right: 15px;">{drift_str}</td>
+                <td>|&nbsp;</td><td>{span_days:.1f} days</td>
+            </tr>
+        </table>
+    </div>
+    """
     return subject, body
 
 

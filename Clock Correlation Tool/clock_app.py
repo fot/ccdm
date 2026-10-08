@@ -599,25 +599,10 @@ class ClockDriftApp(QMainWindow):
                     msg['To'] = email_data['to']
 
                     # 1. Set the standard plain-text fallback
-                    msg.set_content(email_data['body'], cte='8bit')
+                    msg.set_content(email_data['plain_body'], cte='8bit')
 
-                    # 2. Add an HTML alternative to absolutely enforce monospace alignment in Outlook
-                    safe_body = html.escape(email_data['body'])
-                    html_wrapper = f"""<html>
-                    <head>
-                        <style>
-                            pre {{
-                                font-family: Consolas, "Courier New", monospace;
-                                font-size: 13px;
-                                color: #000000;
-                            }}
-                        </style>
-                    </head>
-                    <body>
-                        <pre>{safe_body}</pre>
-                    </body>
-                    </html>"""
-                    msg.add_alternative(html_wrapper, subtype='html', cte='8bit')
+                    # 2. Add teh fomatted HTLM alternative
+                    msg.add_alternative(email_data['html_body'], subtype='html', cte='8bit')
 
                     if email_data['attachment'] and Path(email_data['attachment']).exists():
                         att_path = Path(email_data['attachment'])

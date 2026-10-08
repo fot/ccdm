@@ -597,7 +597,7 @@ class EmailPreviewDialog(QDialog):
     def __init__(self, subject, body, attachment_path, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Email Draft Preview")
-        self.resize(600, 500)
+        self.resize(800, 600)
 
         # Address Variables
         self.sender_email = "rhoover@ipa.cfa.harvard.edu"
@@ -622,7 +622,8 @@ class EmailPreviewDialog(QDialog):
         layout.addLayout(form_layout)
 
         self.txt_body = QTextEdit()
-        self.txt_body.setPlainText(body)
+        self.txt_body.setStyleSheet("background-color: white; color: black;")
+        self.txt_body.setHtml(body)
         layout.addWidget(QLabel("<b>Body:</b>"))
         layout.addWidget(self.txt_body)
 
@@ -640,12 +641,17 @@ class EmailPreviewDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def get_email_data(self):
+        # Safely extract the attachment path, ignoring the fallback UI text
+        attach_text = self.txt_attach.text()
+        valid_attach = attach_text if attach_text != "None Found" else None
+
         return {
-            "from": self.txt_from.text(),
-            "to": self.txt_to.text(),
-            "subject": self.txt_subject.text(),
-            "body": self.txt_body.toPlainText(),
-            "attachment": self.txt_attach.text()
+            'subject': self.txt_subject.text(),
+            'from': self.txt_from.text(),
+            'to': self.txt_to.text(),
+            'html_body': self.txt_body.toHtml(),           # Captures the styled HTML
+            'plain_body': self.txt_body.toPlainText(),     # Captures a clean fallback string
+            'attachment': valid_attach
         }
 
 
