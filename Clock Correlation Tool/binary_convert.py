@@ -2,7 +2,6 @@ from pathlib import Path
 import numpy as np
 import struct
 import pandas as pd
-import os
 from scipy.optimize import fsolve
 
 # Local Imports

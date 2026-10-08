@@ -542,7 +542,7 @@ class ClockDriftApp(QMainWindow):
                 # Process .DIS file
                 if dialog.base_dis:
                     self.base_dis = dialog.base_dis
-                    self.dest_dis = out_path / get_incremented_clkhst_name(self.base_dis)
+                    self.dest_dis = (out_path / get_incremented_clkhst_name(self.base_dis)).with_suffix('.dis')
 
                     shutil.copy(dialog.base_dis, self.dest_dis)
                     convert_dis_file(self.nrt_df, inputdir=str(dialog.base_dis), outputdir=str(self.dest_dis))
@@ -555,7 +555,7 @@ class ClockDriftApp(QMainWindow):
                 # Process .DAT file
                 if dialog.base_dat:
                     self.base_dat = dialog.base_dat
-                    self.dest_dat = out_path / get_incremented_clkhst_name(self.base_dat)
+                    self.dest_dat = (out_path / get_incremented_clkhst_name(self.base_dat)).with_suffix('.dat')
                     shutil.copy(dialog.base_dat, self.dest_dat)
                     convert_dat_file(self.nrt_df, inputdir=str(dialog.base_dat), outputdir=str(self.dest_dat))
                     print(f"[UI] Binary DB .DAT successfully exported to {self.dest_dat}")
