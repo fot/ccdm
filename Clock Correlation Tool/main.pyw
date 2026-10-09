@@ -8,7 +8,7 @@ from misc import get_bundled_path
 if __name__ == '__main__':
 
     if sys.platform == 'win32':
-        myappid = 'occ.clockcorrelationtool'
+        myappid = 'clockcorrelationtool'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid) 
 
     app = QApplication(sys.argv)

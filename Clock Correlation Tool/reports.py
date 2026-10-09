@@ -641,7 +641,7 @@ def draft_correlation_email(self):
     subject = f"Clock History File {filename}"
 
     # Format to match the 3 decimal places seen in legacy output (e.g., .405)
-    ref_time = df['astropy_time'].iloc[0].strftime('%Y:%j:%H:%M:%S.%f')[:-3]
+    ref_time = df['astropy_time'].iloc[0].strftime('%Y:%j:%H:%M:%S.%f')
     ref_count = df['corrected_vcdu'].iloc[0]
 
     # Safely calculate span days using the standard datetime column
