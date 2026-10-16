@@ -1,0 +1,802 @@
+import sys
+import json
+import shutil
+import mimetypes
+import traceback
+import pandas as pd
+from datetime import datetime, timezone
+from pathlib import Path
+from email.message import EmailMessage
+
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QLabel, QListWidget,
+                             QFileDialog, QTextEdit, QMessageBox, QCheckBox,
+                             QLineEdit, QGroupBox, QProgressDialog)
+from PyQt6.QtGui import QAction, QTextCursor, QIcon
+from PyQt6.QtCore import Qt
+
+# Local Imports
+from workers import ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker, BatchOutputsWorker
+from data_parsing import parse_sto_contacts
+from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog,
+                     BinaryExportDialog, ErpSourceDialog, NrtSourceDialog,
+                     StoContactSelectionDialog, EmailPreviewDialog, MaudeRefdataDialog,
+                     SvnConfigDialog)
+from binary_convert import convert_dis_file, convert_dat_file
+from reports import (generate_trending_report, generate_correlation_report,
+                     get_correlation_report_title, update_html_table,
+                     draft_correlation_email)
+from plots import generate_residual_plot
+from misc import get_incremented_clkhst_name, SFTP_CONFIG_PATH
+
+
+class ClockDriftApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Clock Correlation Tool")
+        self.setWindowIcon(QIcon(str(Path(__file__).parent / "app_icon.ico")))
+        self.resize(1200, 800)
+
+        self.erp_file = None
+        self.nrt_files = []
+        self.sto_file = None
+        self.maude_range = None
+        self.telemetry_df = None
+        self.nrt_df = None
+        self.erp_interpolate = None
+        self.base_dis = None
+        self.base_dat = None
+        self.dest_dis = None
+        self.dest_dat = None
+
+        # Establishes default root for output folders and ledger tracking
+        self.base_out_dir = "//noodle/fot/engineering/ccdm/Clock_Timing/Clock Correlation Output"
+        self.out_dir = ""
+        self.output_buttons = []
+        self.legacy_mode = False
+
+        self.console_stream = ConsoleStream()
+        self.console_stream.text_written.connect(self.append_to_console)
+        sys.stdout = self.console_stream
+
+        self.init_menu()
+        self.init_ui()
+
+    def init_menu(self):
+        menubar = self.menuBar()
+        file_menu = menubar.addMenu("File")
+
+        action_select_nrt = QAction("Add Telemetry", self)
+        action_select_nrt.triggered.connect(self.open_nrt_dialog)
+        file_menu.addAction(action_select_nrt)
+
+        action_select_erp = QAction("Select .ERP File", self)
+        action_select_erp.triggered.connect(self.open_erp_dialog)
+        file_menu.addAction(action_select_erp)
+
+        file_menu.addSeparator()
+        action_exit = QAction("Exit", self)
+        action_exit.triggered.connect(self.close)
+        file_menu.addAction(action_exit)
+
+        settings_menu = menubar.addMenu("Settings")
+        action_sftp_settings = QAction("SFTP Configuration", self)
+        action_sftp_settings.triggered.connect(self.open_sftp_settings)
+        action_svn_settings  = QAction("SVN Configuration", self)
+        action_svn_settings.triggered.connect(self.open_svn_settings)
+        settings_menu.addAction(action_sftp_settings)
+        settings_menu.addAction(action_svn_settings)
+
+        view_menu = menubar.addMenu("View")
+        for f in ["constants.json", "calibration_data.json", "dsn_data.json"]:
+            act = QAction(f, self)
+            act.triggered.connect(lambda checked, name=f: self.view_calibration_file(name))
+            view_menu.addAction(act)
+
+    def init_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(6)
+
+        # INPUT BLOCK 
+        input_group_layout = QVBoxLayout()
+        input_group_layout.setContentsMargins(0, 0, 0, 0)
+        input_group_layout.setSpacing(8)
+        input_group_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        # Active Ephemeris Row
+        erp_layout = QHBoxLayout()
+        erp_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.lbl_erp_path = QLabel("No ERP file selected.")
+        self.lbl_erp_path.setStyleSheet("color: gray; font-style: italic;")
+
+        erp_layout.addWidget(QLabel("<b>Active Ephemeris:</b>"))
+        erp_layout.addWidget(self.lbl_erp_path)
+        erp_layout.addStretch()
+        input_group_layout.addLayout(erp_layout)
+
+        # Active Telemetry Queue Box
+        nrt_layout = QVBoxLayout()
+        nrt_layout.setContentsMargins(0, 0, 0, 0)
+        nrt_layout.setSpacing(2)
+
+        nrt_layout.addWidget(QLabel("<b>Active Telemetry Queue:</b>"))
+
+        self.list_nrt_files = QListWidget()
+        self.list_nrt_files.setMinimumHeight(160)
+        self.list_nrt_files.setMaximumHeight(160)
+        nrt_layout.addWidget(self.list_nrt_files)
+        input_group_layout.addLayout(nrt_layout)
+
+        main_layout.addLayout(input_group_layout)
+
+        # Run Button & Legacy Mode Block
+        run_layout = QHBoxLayout()
+        run_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.chk_legacy = QCheckBox("Legacy Mode")
+        self.chk_legacy.stateChanged.connect(self.toggle_legacy_mode)
+        run_layout.addWidget(self.chk_legacy, stretch=1)
+
+        self.btn_run = QPushButton("Execute Clock Correlation")
+        self.btn_run.setMinimumHeight(40)
+        self.btn_run.setEnabled(False)
+        self.btn_run.setStyleSheet("font-weight: bold; font-size: 14px; background-color: #8e44ad; color: white;")
+        self.btn_run.clicked.connect(self.run_calculation)
+        run_layout.addWidget(self.btn_run, stretch=3)
+
+        main_layout.addLayout(run_layout)
+
+        # POST-PROCESSING UI BLOCK
+        self.output_group = QGroupBox("Output Generation & Post-Processing")
+        output_main_layout = QVBoxLayout()
+
+        # Output Directory Row
+        out_dir_layout = QHBoxLayout()
+        self.txt_out_dir = QLineEdit()
+        self.txt_out_dir.setPlaceholderText("Output directory required before generation.")
+        self.txt_out_dir.setReadOnly(True)
+        self.btn_out_dir = QPushButton("Browse.")
+        self.btn_out_dir.clicked.connect(self.select_output_directory)
+
+        out_dir_layout.addWidget(QLabel("Output Directory:"))
+        out_dir_layout.addWidget(self.txt_out_dir)
+        out_dir_layout.addWidget(self.btn_out_dir)
+        output_main_layout.addLayout(out_dir_layout)
+
+        # Individual Outputs Row
+        output_row1 = QHBoxLayout()
+        self.btn_binaries = QPushButton("Export Binary Files (.dis/.dat)")
+        self.btn_binaries.clicked.connect(self.export_binaries)
+
+        self.btn_trend = QPushButton("Trending Report (.xlsx)")
+        self.btn_trend.clicked.connect(self.generate_trending)
+
+        self.btn_corr = QPushButton("Correlation Report (.txt)")
+        self.btn_corr.clicked.connect(self.generate_correlation)
+
+        self.btn_plot = QPushButton("Residual Plot (.png/.html)")
+        self.btn_plot.clicked.connect(self.generate_plot)
+
+        self.btn_html_table = QPushButton("HTML Table")
+        self.btn_html_table.clicked.connect(self.update_html_record_table)
+
+        self.btn_maude_update = QPushButton("Update MAUDE Refdata")
+        self.btn_maude_update.clicked.connect(self.maude_ref_update)
+
+        self.btn_csv = QPushButton("Data Export (.csv)")
+        self.btn_csv.clicked.connect(self.export_csv)
+
+        output_row1.addWidget(self.btn_binaries)
+        output_row1.addWidget(self.btn_trend)
+        output_row1.addWidget(self.btn_corr)
+        output_row1.addWidget(self.btn_plot)
+        output_row1.addWidget(self.btn_html_table)
+        output_row1.addWidget(self.btn_maude_update)
+        output_row1.addWidget(self.btn_csv)
+
+        # Batch Run Row
+        output_row2 = QHBoxLayout()
+        self.btn_run_all = QPushButton("Run All Reports (Exclude CSV)")
+        self.btn_run_all.setMinimumHeight(30)
+        self.btn_run_all.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold;")
+        self.btn_run_all.clicked.connect(self.run_all_outputs)
+
+        # Email Draft Button
+        self.btn_email = QPushButton("Draft Report Email")
+        self.btn_email.setMinimumHeight(30)
+        self.btn_email.setStyleSheet("background-color: #3498db; color: white; font-weight: bold;")
+        self.btn_email.clicked.connect(self.draft_email)
+
+        output_row2.addWidget(self.btn_run_all)
+        output_row2.addWidget(self.btn_email) # Inject it next to the run_all button
+
+        output_main_layout.addLayout(output_row1)
+        output_main_layout.addLayout(output_row2)
+        self.output_group.setLayout(output_main_layout)
+
+        # Add to button list so it toggles on/off correctly
+        self.output_buttons = [self.btn_binaries, self.btn_trend, self.btn_corr,
+                               self.btn_plot, self.btn_html_table, self.btn_csv,
+                               self.btn_maude_update,
+                               self.btn_run_all, self.btn_out_dir, self.btn_email]
+
+        for btn in self.output_buttons:
+            btn.setEnabled(False)
+
+        main_layout.addWidget(self.output_group)
+
+        # Console Block
+        main_layout.addWidget(QLabel("<b>Console Output:</b>"))
+        self.txt_output = QTextEdit()
+        self.txt_output.setReadOnly(True)
+        self.txt_output.setStyleSheet("font-family: Consolas, monospace; background-color: #1e1e1e; color: #d4d4d4;")
+
+        main_layout.addWidget(self.txt_output, stretch=1)
+
+    def check_ready_state(self):
+        has_erp = self.erp_file is not None
+        has_data = len(self.nrt_files) > 0 or self.maude_range is not None or self.telemetry_df is not None
+        
+        if has_erp and has_data:
+            self.btn_run.setEnabled(True)
+        else:
+            self.btn_run.setEnabled(False)
+
+    def check_output_ready_state(self):
+        if self.nrt_df is not None and (self.out_dir == ""):
+            self.btn_out_dir.setEnabled(True)
+        elif self.nrt_df is not None and (self.out_dir != ""):
+            for btn in self.output_buttons:
+                btn.setEnabled(True)
+        else:
+            for btn in self.output_buttons:
+                btn.setEnabled(False)
+
+    def toggle_legacy_mode(self):
+        self.legacy_mode = self.chk_legacy.isChecked()
+        
+    def open_sftp_settings(self):
+        dialog = SFTPConfigDialog(self)
+        dialog.exec()
+
+    def open_svn_settings(self):
+        dialog = SvnConfigDialog(self)
+        dialog.exec()
+
+    def select_output_directory(self):
+        dir_path = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        if dir_path:
+            self.base_out_dir = dir_path
+            self.setup_run_output_directory()
+
+    def setup_run_output_directory(self):
+        """Builds the nested /YYYY/rclkout_YY_DDD_DDD structure."""
+        if not self.base_out_dir:
+            return
+
+        now = datetime.now(timezone.utc)
+        yy_str = now.strftime("%y")
+        yyyy_str = now.strftime("%Y")
+        jday_str = now.strftime("%j")
+        start_str = jday_str
+        end_str = jday_str
+
+        if self.nrt_df is not None:
+            try:
+                time_col = None
+                for col in ['time', 'UTC', 'DateTime', 'date', 'timestamp']:
+                    if col in self.nrt_df.columns:
+                        time_col = col
+                        break
+                if time_col:
+                    t_min = pd.to_datetime(self.nrt_df[time_col]).min()
+                    t_max = pd.to_datetime(self.nrt_df[time_col]).max()
+                elif isinstance(self.nrt_df.index, pd.DatetimeIndex):
+                    t_min = self.nrt_df.index.min()
+                    t_max = self.nrt_df.index.max()
+                else:
+                    t_min = pd.to_datetime(self.nrt_df.iloc[:, 0]).min()
+                    t_max = pd.to_datetime(self.nrt_df.iloc[:, 0]).max()
+
+                yyyy_str = t_min.strftime("%Y")
+                yy_str = t_min.strftime("%y")
+                start_str = t_min.strftime("%j")
+                end_str = t_max.strftime("%j")
+            except Exception:
+                pass
+
+        sub_dir_name = f"rclkout_{yy_str}_{start_str}_{end_str}"
+
+        # Inject the /YYYY/ parent directory
+        year_path = Path(self.base_out_dir) / yyyy_str
+        sub_path = year_path / sub_dir_name
+        sub_path.mkdir(parents=True, exist_ok=True)
+
+        self.out_dir = str(sub_path)
+        self.txt_out_dir.setText(self.out_dir)
+        print(f"[UI] Output Subdirectory created: {self.out_dir}")
+        self.check_output_ready_state()
+
+    def open_erp_dialog(self):
+        dialog = ErpSourceDialog(self)
+        if dialog.exec():
+            self.erp_interpolate = dialog.erp_interpolate
+            print(f"[UI] Selected Ephemeris Interpolation Method: {self.erp_interpolate}")
+
+            if dialog.selection == 'local':
+                self.select_erp_file_local()
+            elif dialog.selection == 'sftp':
+                self.pull_erp_sftp()
+
+    def select_erp_file_local(self):
+        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/ERPFiles")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Ephemeris File", str(default_dir), "ERP Files (*.erp);;All Files (*.*)")
+        if file_path:
+            self.erp_file = file_path
+            self.lbl_erp_path.setText(Path(self.erp_file).name)
+            self.lbl_erp_path.setStyleSheet("color: white; font-weight: bold;")
+            print(f"[UI] Loaded Local Ephemeris: {self.erp_file}")
+            self.check_ready_state()
+
+    def pull_erp_sftp(self):
+        if not SFTP_CONFIG_PATH.exists():
+            QMessageBox.warning(self, "Error", "SFTP Config not found. Please configure in Settings.")
+            return
+
+        with open(SFTP_CONFIG_PATH, 'r') as f:
+            cfg = json.load(f)
+
+        self.lbl_erp_path.setText("Downloading from Lucky.")
+        self.lbl_erp_path.setStyleSheet("color: #f39c12; font-weight: bold; font-style: italic;")
+
+        erp_dest = Path("//noodle/fot/engineering/ccdm/Clock_Timing/ERPFiles")
+        self.worker_erp = SFTPWorker(cfg.get('remote_erp_dir', ''), '.erp', dest_dir=erp_dest)
+
+        self.worker_erp.log.connect(self.append_to_console)
+        self.worker_erp.finished.connect(self.on_erp_sftp_success)
+        self.worker_erp.error.connect(self.on_erp_sftp_error)
+        self.worker_erp.start()
+
+    def on_erp_sftp_success(self, local_path):
+        self.erp_file = local_path
+        self.lbl_erp_path.setText(f"(SFTP) {Path(self.erp_file).name}")
+        self.lbl_erp_path.setStyleSheet("color: #2ecc71; font-weight: bold;")
+        print(f"[UI] SFTP Loaded Ephemeris: {self.erp_file}")
+        self.check_ready_state()
+
+    def on_erp_sftp_error(self, err):
+        self.lbl_erp_path.setText("SFTP Download Failed.")
+        self.lbl_erp_path.setStyleSheet("color: #e74c3c; font-weight: bold; font-style: italic;")
+        QMessageBox.critical(self, "SFTP Error", err)
+
+    def open_nrt_dialog(self):
+        """Routes the user to their chosen telemetry input method."""
+        dialog = NrtSourceDialog(self)
+        if dialog.exec():
+            if dialog.selection == 'local':
+                self.select_nrt_files()
+            elif dialog.selection == 'maude':
+                self.open_maude_dialog()
+            elif dialog.selection == 'sto':
+                self.open_sto_parser()
+
+    def select_nrt_files(self):
+        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/NRTFiles")
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Select NRT Telemetry Files", str(default_dir), "NRT Files (*.nrt);;All Files (*.*)")
+        if files:
+            for f in files:
+                if f not in self.nrt_files:
+                    self.nrt_files.append(f)
+                    self.list_nrt_files.addItem(f"Local File: {f}")
+            print(f"[UI] Appended {len(files)} telemetry file(s) to the queue.")
+            self.check_ready_state()
+
+    def open_maude_dialog(self):
+        dialog = MaudeDialog(self)
+        if dialog.exec():
+            start_dt, end_dt = dialog.get_date_range()
+            if start_dt >= end_dt:
+                QMessageBox.warning(self, "Invalid Range", "Start time must be before End time.")
+                return
+            self.maude_range = (start_dt, end_dt)
+            maude_str = f"MAUDE Query: {start_dt.toString('yyyy-MM-dd HH:mm:ss')} to {end_dt.toString('yyyy-MM-dd HH:mm:ss')}"
+            self.list_nrt_files.addItem(maude_str)
+            print(f"[UI] {maude_str} queued for extraction.")
+            self.check_ready_state()
+
+    def open_sto_parser(self):
+        """Spawns a progress dialog and dispatches the heavy STO parsing to a background thread."""
+        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/STOFiles")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Master Telemetry File (.STO / .NRT)", 
+            str(default_dir), 
+            "Telemetry Files (*.sto *.nrt *.csv *.txt);;All Files (*.*)"
+        )
+
+        if not file_path:
+            return
+
+        self.current_sto_filepath = file_path 
+
+        print(f"[UI] Initiating background parse for telemetry file: {Path(file_path).name}")
+
+        self.progress_dialog = QProgressDialog(f"Loading {Path(file_path).name}.", "Cancel", 0, 100, self)
+        self.progress_dialog.setWindowTitle("Parsing Master File")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.setAutoClose(False) 
+        self.progress_dialog.setAutoReset(False) 
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setValue(0)
+
+        self.sto_worker = StoParserWorker(file_path)
+        self.sto_worker.progress.connect(self.progress_dialog.setValue)
+        self.sto_worker.finished.connect(self.on_sto_parsed)
+        self.sto_worker.error.connect(self.on_sto_error)
+
+        self.progress_dialog.canceled.connect(self.sto_worker.cancel)
+        self.sto_worker.start()
+
+    def on_sto_error(self, err_msg):
+        """Handles any exceptions thrown during the background parse."""
+        self.progress_dialog.close()
+        QMessageBox.critical(self, "Load Error", f"Failed to read file:\n{err_msg}")
+
+    def on_sto_parsed(self, sto_df):
+        """Receives the loaded dataframe from the background thread and resumes the UI flow."""
+        self.progress_dialog.close()
+
+        if sto_df.empty:
+            return
+
+        supports = parse_sto_contacts(sto_df, time_col='datetime')
+
+        if not supports:
+            QMessageBox.information(self, "No Contacts", "No physical supports >= 2.0 minutes were found.")
+            return
+
+        data_year = sto_df['datetime'].min().strftime("%Y")
+        history_file = Path(self.base_out_dir) / data_year / "contact_history.json"
+
+        dialog = StoContactSelectionDialog(supports, history_file, self)
+
+        if dialog.exec():
+            combined_mask = pd.Series(False, index=sto_df.index)
+            num_extracts = len(dialog.selected_windows)
+            display_strs = [f"STO Extracts ({num_extracts}):"]
+
+            for w_start, w_end in dialog.selected_windows:
+                combined_mask |= (sto_df['datetime'] >= w_start) & (sto_df['datetime'] < w_end)
+                display_strs.append(f"{w_start.strftime('%Y:%j %H:%M')} to {w_end.strftime('%H:%M')}")
+
+            self.telemetry_df = sto_df.loc[combined_mask].copy()
+
+            if 'time_diff' in self.telemetry_df.columns:
+                self.telemetry_df = self.telemetry_df.drop(columns=['time_diff', 'support_id'])
+
+            # FIX: Append the master file to the queue list so reports.py doesn't crash on Path(None)
+            if hasattr(self, 'current_sto_filepath') and self.current_sto_filepath not in self.nrt_files:
+                self.nrt_files.append(self.current_sto_filepath)
+
+            summary_str = "\n".join(display_strs)
+            self.list_nrt_files.addItem(summary_str)
+            print(f"[UI] {num_extracts} support(s) queued for processing.")
+
+            self.check_ready_state()
+
+    def view_calibration_file(self, filename):
+        target_path = Path(__file__).parent.resolve() / filename
+        if not target_path.exists():
+            QMessageBox.warning(self, "File Not Found", f"Could not locate {filename}.")
+            return
+        viewer = JsonViewerDialog(target_path, self)
+        viewer.exec()
+
+    def append_to_console(self, text):
+        cursor = self.txt_output.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertText(text)
+        self.txt_output.setTextCursor(cursor)
+        self.txt_output.ensureCursorVisible()
+
+    def run_calculation(self):
+        self.btn_run.setEnabled(False)
+        self.txt_output.clear()
+
+        for btn in self.output_buttons:
+            btn.setEnabled(False)
+
+        print("[UI] Initializing Clock Correlation.")
+        if self.legacy_mode:
+            print("[UI] Execution configured for Legacy Mode overrides.")
+
+        # Pass the extracted telemetry dataframe directly into the worker queue
+        self.worker = PipelineWorker(self.erp_file, self.nrt_files, self.erp_interpolate,
+                                     self.legacy_mode, telemetry_df=self.telemetry_df)
+        self.worker.finished.connect(self.on_calculation_finished)
+        self.worker.error.connect(self.on_calculation_error)
+        self.worker.start()
+
+    def on_calculation_finished(self, nrt_df):
+        self.nrt_df = nrt_df
+        print("\n[UI] Clock Correlation completed successfully.")
+        self.btn_run.setEnabled(True)
+
+        self.check_output_ready_state()
+
+        if self.base_out_dir:
+            self.setup_run_output_directory()
+        else:
+            print("[UI] Waiting for Output Directory to be selected to enable generation buttons.")
+
+    def on_calculation_error(self, err_msg):
+        print(f"\n[ERROR] Clock Correlation halted due to exception:\n{err_msg}")
+        self.btn_run.setEnabled(True)
+
+    def export_binaries(self):
+        print("[UI] Prompting for Binary DB base files.")
+        dialog = BinaryExportDialog(self)
+        if dialog.exec():
+            print("[UI] Initiating Binary Database Export.")
+            try:
+                out_path = Path(self.out_dir)
+
+                # Process .DIS file
+                if dialog.base_dis:
+                    self.base_dis = dialog.base_dis
+                    self.dest_dis = (out_path / get_incremented_clkhst_name(self.base_dis)).with_suffix('.dis')
+
+                    shutil.copy(dialog.base_dis, self.dest_dis)
+                    convert_dis_file(self.nrt_df, inputdir=str(dialog.base_dis), outputdir=str(self.dest_dis))
+                    print(f"[UI] Binary DB .DIS successfully exported to {self.dest_dis}")
+
+                    if ".sftp_cache" in Path(dialog.base_dis).parts:
+                        Path(dialog.base_dis).unlink(missing_ok=True)
+                        print(f"[UI] Cleaned up temporary SFTP file: {Path(dialog.base_dis).name}")
+
+                # Process .DAT file
+                if dialog.base_dat:
+                    self.base_dat = dialog.base_dat
+                    self.dest_dat = (out_path / get_incremented_clkhst_name(self.base_dat)).with_suffix('.dat')
+                    shutil.copy(dialog.base_dat, self.dest_dat)
+                    convert_dat_file(self.nrt_df, inputdir=str(dialog.base_dat), outputdir=str(self.dest_dat))
+                    print(f"[UI] Binary DB .DAT successfully exported to {self.dest_dat}")
+
+                    if ".sftp_cache" in Path(dialog.base_dat).parts:
+                        Path(dialog.base_dat).unlink(missing_ok=True)
+                        print(f"[UI] Cleaned up temporary SFTP file: {Path(dialog.base_dat).name}")
+
+            except Exception as e:
+                print(f"[ERROR] Binary export failed: {e}\n{traceback.format_exc()}")
+
+    def draft_email(self):
+        """Generates email text, locates the plot, displays the preview, and saves an .eml file."""
+        try:
+            # Locate the generated residual plot
+            filetitle = get_correlation_report_title(self.nrt_df)
+            expected_plot_path = Path(self.out_dir) / f"{filetitle}_residuals.png"
+
+            if not expected_plot_path.exists():
+                QMessageBox.warning(self, "Attachment Warning", "The residual plot has not been generated yet. Please generate the plot before drafting the email.")
+                actual_plot_path = None
+            else:
+                actual_plot_path = expected_plot_path
+
+            # Get body string and show dialog
+            subject, body = draft_correlation_email(self)
+            dialog = EmailPreviewDialog(subject, body, actual_plot_path, self)
+
+            # Save the payload as an Outlook-compatible .eml file
+            if dialog.exec():
+                email_data = dialog.get_email_data()
+
+                draft_filename = f"{filetitle}.eml"
+                draft_path = Path(self.out_dir) / draft_filename
+
+                try:
+                    # Initialize natively. The HTML block handles the formatting, 
+                    msg = EmailMessage()
+                    msg['Subject'] = email_data['subject']
+                    msg['From'] = email_data['from']
+                    msg['To'] = email_data['to']
+
+                    # 1. Set the standard plain-text fallback
+                    msg.set_content(email_data['plain_body'], cte='8bit')
+
+                    # 2. Add teh fomatted HTLM alternative
+                    msg.add_alternative(email_data['html_body'], subtype='html', cte='8bit')
+
+                    if email_data['attachment'] and Path(email_data['attachment']).exists():
+                        att_path = Path(email_data['attachment'])
+                        ctype, _ = mimetypes.guess_type(att_path)
+                        maintype, subtype = (ctype or 'application/octet-stream').split('/', 1)
+
+                        with open(att_path, 'rb') as f:
+                            msg.add_attachment(f.read(), maintype=maintype, subtype=subtype, filename=att_path.name)
+
+                    with open(draft_path, 'wb') as f:
+                        f.write(bytes(msg))
+
+                    print(f"[UI] Email draft saved to {draft_path}")
+
+                except Exception as e:
+                    QMessageBox.warning(self, "Save Error",
+                                        f"Failed to generate email file: {e}\n{traceback.format_exc()}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to draft email: {e}\n{traceback.format_exc()}")
+
+    def generate_trending(self, autorun=False):
+        trend_dir = Path("//noodle/fot/users/rhoover/Clock Tool Development Files")
+
+        try:
+            if autorun:
+                file_path = trend_dir / "Clock Rate Trending (Test).xlsx"
+            else:
+                box = QMessageBox(self)
+                box.setWindowTitle("Trending Report Destination")
+                box.setText("Would you like to append to an existing master trending spreadsheet or create a new one?")
+                btn_append = box.addButton("Append to Existing", QMessageBox.ButtonRole.AcceptRole)
+                btn_new = box.addButton("Create New File", QMessageBox.ButtonRole.ActionRole)
+                box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+                box.exec()
+
+                clicked_btn = box.clickedButton()
+                file_path = None
+
+                if clicked_btn == btn_append:
+                    file_path, _ = QFileDialog.getOpenFileName(self, "Select Existing Master Excel File",
+                                                               str(trend_dir), "Excel Files (*.xlsx)")
+                elif clicked_btn == btn_new:
+                    file_path, _ = QFileDialog.getSaveFileName(self, "Create New Master Excel File",
+                                                               str(Path(trend_dir) / "Master_Trending.xlsx"),
+                                                               "Excel Files (*.xlsx)")
+
+            if file_path:
+                generate_trending_report(self.nrt_df, Path(file_path))
+                print(f"[UI] Trending report successfully processed at {file_path}")
+        except Exception as e:
+            print(f"[ERROR] Trending report generation failed: {e}\n{traceback.format_exc()}")
+
+    def generate_correlation(self, autorun=False):
+        try:
+            filetitle = get_correlation_report_title(self.nrt_df)
+
+            if autorun:
+                file_path = Path(self.out_dir) / f"{filetitle}.txt"
+            else:
+                file_path, _ = QFileDialog.getSaveFileName(self, "Save Correlation Report",
+                                                           str(Path(self.out_dir) / f"{filetitle}.txt"),
+                                                           "Text Files (*.txt)")
+
+            if file_path:
+                generate_correlation_report(self.nrt_df, self.nrt_files,
+                                            self.erp_file, self.sto_file,
+                                            Path(file_path).parent)
+            print(f"[UI] Correlation report successfully generated.")
+        except Exception as e:
+            print(f"[ERROR] Correlation report generation failed: {e}\n{traceback.format_exc()}")
+
+    def generate_plot(self, autorun=False):
+        try:
+            filetitle = get_correlation_report_title(self.nrt_df)
+
+            if autorun:
+                file_path = Path(self.out_dir) / f"{filetitle}_residuals.png"
+            else:
+                file_path, _ = QFileDialog.getSaveFileName(self, "Save Residual Plot",
+                                                           str(Path(self.out_dir) / f"{filetitle}_residuals.png"),
+                                                           "PNG Images (*.png);;HTML Files (*.html)")
+
+            if file_path:
+                generate_residual_plot(self.nrt_df, Path(file_path))
+                print(f"[UI] Plot successfully saved to {file_path}")
+        except Exception as e:
+            print(f"[ERROR] Plot generation failed: {e}\n{traceback.format_exc()}")
+
+    def update_html_record_table(self):
+        try:
+            now = datetime.now(timezone.utc)
+            inputpath = Path("//noodle/fot/users/rhoover/Clock Tool Development Files")
+            update_html_table(self.nrt_df, inputpath / f"Clock_Correlation{now.strftime('%Y')}.htm")
+            print(f"[UI] HTML Table successfully updated.")
+        except Exception as e:
+            print(f"[ERROR] HTML table update failed: {e}\n{traceback.format_exc()}")
+
+    def maude_ref_update(self):
+        try:
+            print("[UI] Opening MAUDE Refdata Update and SVN Commit dialog.")
+
+            # Pass the path as an argument, keeping self as the parent window
+            dialog = MaudeRefdataDialog(getattr(self, 'dest_dis', None),
+                                        self.nrt_df, parent = self)
+            dialog.exec()
+        except Exception as e:
+            print(f"[ERROR] Failed to open MAUDE update dialog: {e}\n{traceback.format_exc()}")
+
+    def run_all_outputs(self):
+        """Launches batch output file generation in a background QThread."""
+        if self.nrt_df is None or not self.out_dir:
+            QMessageBox.warning(self, "Warning", "Please calculate correlation and select an output directory first.")
+            return
+
+        # Prompt for binary DB base files on the GUI thread up front
+        dialog = BinaryExportDialog(self)
+        if dialog.exec():
+            self.base_dis = dialog.base_dis
+            self.base_dat = dialog.base_dat
+
+        # Disable output buttons while processing
+        for btn in self.output_buttons:
+            btn.setEnabled(False)
+
+        print(f"[UI] Initiating background batch output generation to {Path(self.out_dir)}.")
+
+        # Instantiate and configure background thread
+        self.batch_worker = BatchOutputsWorker(
+            nrt_df=self.nrt_df,
+            nrt_files=self.nrt_files,
+            erp_file=self.erp_file,
+            sto_file=self.sto_file,
+            out_dir=self.out_dir,
+            base_dis=self.base_dis,
+            base_dat=self.base_dat
+        )
+
+        self.batch_worker.log.connect(self.append_to_console)
+        self.batch_worker.finished.connect(self.on_batch_finished)
+        self.batch_worker.error.connect(self.on_batch_error)
+        self.batch_worker.start()
+
+    def on_batch_finished(self, results):
+        """Callback triggered when the background batch thread completes successfully."""
+        if results.get('dest_dis'):
+            self.dest_dis = results['dest_dis']
+        if results.get('dest_dat'):
+            self.dest_dat = results['dest_dat']
+
+        print("[UI] Batch file generation completed successfully.")
+
+        # Re-enable output buttons
+        self.check_output_ready_state()
+
+        # Launch interactive preview/commit dialogs on the main GUI thread
+        self.draft_email()
+        self.maude_ref_update()
+
+    def on_batch_error(self, err_msg):
+        """Callback triggered if an exception occurs during background execution."""
+        print(f"[ERROR] Batch output execution failed:\n{err_msg}")
+        self.check_output_ready_state()
+
+    def export_csv(self):
+        filetitle = get_correlation_report_title(self.nrt_df)
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Raw DataFrame", str(Path(self.out_dir) / f"{filetitle}.csv"), "CSV Files (*.csv)")
+        if file_path:
+            try:
+                self.nrt_df.to_csv(file_path, index=False)
+                print(f"[UI] Raw Data exported to {file_path}")
+            except Exception as e:
+                print(f"[ERROR] CSV Export failed: {e}\n{traceback.format_exc()}")
+
+    def closeEvent(self, event):
+        reply = QMessageBox.question(
+            self,
+            "Confirm Exit",
+            "Are you sure you want to exit the Clock Correlation Tool?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Restore standard output before closing, keeping your original logic
+            sys.stdout = sys.__stdout__ 
+            event.accept()
+        else:
+            event.ignore()
