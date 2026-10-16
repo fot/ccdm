@@ -1,6 +1,6 @@
 import numpy as np
-from pathlib import Path
 from scipy.interpolate import CubicSpline
+from scipy.integrate import solve_ivp
 from astropy.time import Time
 from astropy.coordinates import EarthLocation
 import astropy.units as u
@@ -396,104 +396,250 @@ def legacy_coefficient_solver(x, y, scale=1e-6, sigma_limit=3.0):
     }
 
 
-def ephemeris_interpolator(target_times, erp_times, erp_pos, erp_vel, legacy_mode=True):
+def ephemeris_interpolator(target_times, erp_times, erp_pos, erp_vel, erp_interpolate, legacy_mode=False):
     """
     Interpolates spacecraft position and velocity from ephemeris data.
-    
-    legacy=True:  Vectorized Cubic Hermite Spline matching the legacy Delphi 
-                  tool. Uses 2-point bounds (C1 continuous).
-    legacy=False: Global Cubic Spline fit enforcing smooth spacecraft 
-                  acceleration across all boundaries (C2 continuous).
     """
-    log_callback("Extrapolating Spacecraft Ephemeris...")
+    log_callback(f"Extrapolating Spacecraft Ephemeris using the {erp_interpolate} method...")
+    interp_pos, interp_vel = None, None
+
+    if erp_interpolate.lower() == "cowell":
+        interp_pos, interp_vel = cowell_interpolator(target_times, erp_times, erp_pos, erp_vel)
+
+    if erp_interpolate.lower() == "hpop (rk45) (default)":
+        interp_pos, interp_vel = hpop_rk45_interpolator(target_times, erp_times, erp_pos, erp_vel)
+
+    if erp_interpolate.lower() == "cubic hermite spline (legacy)" or legacy_mode:
+        interp_pos, interp_vel = cubic_hermite_spline_interpolator(target_times, erp_times, erp_pos, erp_vel)
+
+    return interp_pos, interp_vel
+
+
+def cubic_hermite_spline_interpolator(target_times, erp_times, erp_pos, erp_vel):
+    """
+    Interpolates spacecraft position and velocity from ephemeris data.
+
+    legacy=True:  Vectorized Cubic Hermite Spline matching the legacy Delphi
+                  tool. Uses 2-point bounds (C1 continuous).
+    """
     target_times = np.asarray(target_times, dtype=np.float64)
     erp_times = np.asarray(erp_times, dtype=np.float64)
     erp_pos = np.asarray(erp_pos, dtype=np.float64)
     erp_vel = np.asarray(erp_vel, dtype=np.float64)
 
-    if legacy_mode:
-        # --- LEGACY MODE: Piecewise Cubic Hermite Spline ---
-        # Find the nearest preceding ephemeris index
-        indices = np.searchsorted(erp_times, target_times, side='right')
-        indices = np.clip(indices, 1, len(erp_times) - 1)
+    indices = np.searchsorted(erp_times, target_times, side='right')
+    indices = np.clip(indices, 1, len(erp_times) - 1)
 
-        idx0 = indices - 1
-        idx1 = indices
+    idx0 = indices - 1
+    idx1 = indices
 
-        t0 = erp_times[idx0]
-        p0 = erp_pos[idx0]
-        v0 = erp_vel[idx0]
+    t0 = erp_times[idx0]
+    p0 = erp_pos[idx0]
+    v0 = erp_vel[idx0]
 
-        t1 = erp_times[idx1]
-        p1 = erp_pos[idx1]
-        v1 = erp_vel[idx1]
+    t1 = erp_times[idx1]
+    p1 = erp_pos[idx1]
+    v1 = erp_vel[idx1]
 
-        # Time intervals (1D arrays of length N)
-        T = t1 - t0
-        t = target_times - t0
+    # Time intervals (1D arrays of length N)
+    T = t1 - t0
+    t = target_times - t0
 
-        # Avoid division by zero if timestamps overlap
-        with np.errstate(divide='ignore', invalid='ignore'):
-            tau = np.where(T != 0, t / T, 0.0)
+    # Avoid division by zero if timestamps overlap
+    with np.errstate(divide='ignore', invalid='ignore'):
+        tau = np.where(T != 0, t / T, 0.0)
 
-        # Hermite basis functions
-        tau2 = tau ** 2
-        tau3 = tau ** 3
+    # Hermite basis functions
+    tau2 = tau ** 2
+    tau3 = tau ** 3
 
-        h00 = 2.0 * tau3 - 3.0 * tau2 + 1.0
-        h10 = tau3 - 2.0 * tau2 + tau
-        h01 = -2.0 * tau3 + 3.0 * tau2
-        h11 = tau3 - tau2
+    h00 = 2.0 * tau3 - 3.0 * tau2 + 1.0
+    h10 = tau3 - 2.0 * tau2 + tau
+    h01 = -2.0 * tau3 + 3.0 * tau2
+    h11 = tau3 - tau2
 
-        # Expand dims for broadcasting against (N, 3) position/velocity arrays
-        h00_ext = h00[:, np.newaxis]
-        h10_ext = h10[:, np.newaxis]
-        h01_ext = h01[:, np.newaxis]
-        h11_ext = h11[:, np.newaxis]
-        T_ext = T[:, np.newaxis]
+    # Expand dims for broadcasting against (N, 3) position/velocity arrays
+    h00_ext = h00[:, np.newaxis]
+    h10_ext = h10[:, np.newaxis]
+    h01_ext = h01[:, np.newaxis]
+    h11_ext = h11[:, np.newaxis]
+    T_ext = T[:, np.newaxis]
 
-        # Position interpolation (Shape: N, 3)
-        interp_pos = (h00_ext * p0 +
-                      h10_ext * (v0 * T_ext) +
-                      h01_ext * p1 +
-                      h11_ext * (v1 * T_ext))
+    # Position interpolation (Shape: N, 3)
+    interp_pos = (h00_ext * p0 +
+                    h10_ext * (v0 * T_ext) +
+                    h01_ext * p1 +
+                    h11_ext * (v1 * T_ext))
 
-        # Derivative of Hermite basis functions
-        dh00 = 6.0 * tau2 - 6.0 * tau
-        dh10 = 3.0 * tau2 - 4.0 * tau + 1.0
-        dh01 = -6.0 * tau2 + 6.0 * tau
-        dh11 = 3.0 * tau2 - 2.0 * tau
+    # Derivative of Hermite basis functions
+    dh00 = 6.0 * tau2 - 6.0 * tau
+    dh10 = 3.0 * tau2 - 4.0 * tau + 1.0
+    dh01 = -6.0 * tau2 + 6.0 * tau
+    dh11 = 3.0 * tau2 - 2.0 * tau
 
-        dh00_ext = dh00[:, np.newaxis]
-        dh10_ext = dh10[:, np.newaxis]
-        dh01_ext = dh01[:, np.newaxis]
-        dh11_ext = dh11[:, np.newaxis]
+    dh00_ext = dh00[:, np.newaxis]
+    dh10_ext = dh10[:, np.newaxis]
+    dh01_ext = dh01[:, np.newaxis]
+    dh11_ext = dh11[:, np.newaxis]
 
-        # Velocity interpolation scaled by 1/T due to chain rule (dt/tau)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            inv_T = np.where(T != 0, 1.0 / T, 0.0)[:, np.newaxis]
+    # Velocity interpolation scaled by 1/T due to chain rule (dt/tau)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        inv_T = np.where(T != 0, 1.0 / T, 0.0)[:, np.newaxis]
 
-        interp_vel = inv_T * (
-                      dh00_ext * p0 +
-                      dh10_ext * (v0 * T_ext) +
-                      dh01_ext * p1 +
-                      dh11_ext * (v1 * T_ext)
+    interp_vel = inv_T * (
+                    dh00_ext * p0 +
+                    dh10_ext * (v0 * T_ext) +
+                    dh01_ext * p1 +
+                    dh11_ext * (v1 * T_ext)
+    )
+
+    return interp_pos, interp_vel
+
+
+def cowell_interpolator(target_times, erp_times, erp_pos, erp_vel):
+    """
+    Approximates the legacy Cowell Propagator output using a 
+    Vectorized Piecewise Cubic Hermite Spline (C1 continuous).
+    """
+    target_times = np.asarray(target_times, dtype=np.float64)
+    erp_times = np.asarray(erp_times, dtype=np.float64)
+    erp_pos = np.asarray(erp_pos, dtype=np.float64)
+    erp_vel = np.asarray(erp_vel, dtype=np.float64)
+
+    # Find the nearest preceding ephemeris index
+    indices = np.searchsorted(erp_times, target_times, side='right')
+    indices = np.clip(indices, 1, len(erp_times) - 1)
+
+    idx0 = indices - 1
+    idx1 = indices
+
+    t0 = erp_times[idx0]
+    p0 = erp_pos[idx0]
+    v0 = erp_vel[idx0]
+
+    t1 = erp_times[idx1]
+    p1 = erp_pos[idx1]
+    v1 = erp_vel[idx1]
+
+    # Time intervals (1D arrays of length N)
+    T = t1 - t0
+    t = target_times - t0
+
+    # Avoid division by zero if timestamps overlap
+    with np.errstate(divide='ignore', invalid='ignore'):
+        tau = np.where(T != 0, t / T, 0.0)
+
+    # Hermite basis functions
+    tau2 = tau ** 2
+    tau3 = tau ** 3
+
+    h00 = 2.0 * tau3 - 3.0 * tau2 + 1.0
+    h10 = tau3 - 2.0 * tau2 + tau
+    h01 = -2.0 * tau3 + 3.0 * tau2
+    h11 = tau3 - tau2
+
+    # Expand dims for broadcasting against (N, 3) position/velocity arrays
+    h00_ext = h00[:, np.newaxis]
+    h10_ext = h10[:, np.newaxis]
+    h01_ext = h01[:, np.newaxis]
+    h11_ext = h11[:, np.newaxis]
+    T_ext = T[:, np.newaxis]
+
+    # Position interpolation (Shape: N, 3)
+    interp_pos = (h00_ext * p0 +
+                  h10_ext * (v0 * T_ext) +
+                  h01_ext * p1 +
+                  h11_ext * (v1 * T_ext))
+
+    # Derivative of Hermite basis functions
+    dh00 = 6.0 * tau2 - 6.0 * tau
+    dh10 = 3.0 * tau2 - 4.0 * tau + 1.0
+    dh01 = -6.0 * tau2 + 6.0 * tau
+    dh11 = 3.0 * tau2 - 2.0 * tau
+
+    dh00_ext = dh00[:, np.newaxis]
+    dh10_ext = dh10[:, np.newaxis]
+    dh01_ext = dh01[:, np.newaxis]
+    dh11_ext = dh11[:, np.newaxis]
+
+    # Velocity interpolation scaled by 1/T due to chain rule (dt/tau)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        inv_T = np.where(T != 0, 1.0 / T, 0.0)[:, np.newaxis]
+
+    interp_vel = inv_T * (
+                  dh00_ext * p0 +
+                  dh10_ext * (v0 * T_ext) +
+                  dh01_ext * p1 +
+                  dh11_ext * (v1 * T_ext)
+    )
+
+    return interp_pos, interp_vel
+
+
+def hpop_rk45_interpolator(target_times, erp_times, erp_pos, erp_vel):
+    """
+    Piecewise HPOP Interpolator using RKF45 integration.
+    Uses the nearest preceding ephemeris point as an absolute truth anchor, 
+    and physically integrates forward to the target times using an RK45 solver.
+    """
+    target_times = np.asarray(target_times, dtype=np.float64)
+    erp_times = np.asarray(erp_times, dtype=np.float64)
+    erp_pos = np.asarray(erp_pos, dtype=np.float64)
+    erp_vel = np.asarray(erp_vel, dtype=np.float64)
+
+    interp_pos = np.zeros((len(target_times), 3))
+    interp_vel = np.zeros((len(target_times), 3))
+
+    # Dynamically determine Earth Gravitational Parameter (MU) units.
+    # If the position magnitude is > 1,000,000, the data is likely in meters.
+    if np.linalg.norm(erp_pos[0]) > 1e6:
+        MU = 3.986004418e14  # meters^3 / s^2
+    else:
+        MU = 398600.4418     # km^3 / s^2
+
+    def orbit_ode(t, state):
+        """Two-body orbital physics model for the ODE solver."""
+        r = state[:3]
+        v = state[3:]
+        r3 = np.linalg.norm(r)**3
+
+        # Acceleration = -MU * r / |r|^3
+        a = -MU * r / r3
+        return np.concatenate((v, a))
+
+    # Group target times by their preceding ephemeris index so we only 
+    # run the integrator for the exact time gaps where telemetry exists.
+    indices = np.searchsorted(erp_times, target_times, side='right') - 1
+
+    # Ensure indices stay within the bounds of the erp arrays
+    indices = np.clip(indices, 0, len(erp_times) - 2)
+    unique_intervals = np.unique(indices)
+
+    for idx in unique_intervals:
+        mask = (indices == idx)
+        t_eval = target_times[mask]
+
+        t0 = erp_times[idx]
+        t1 = erp_times[idx + 1]
+
+        # Initial state at the preceding ephemeris point
+        y0 = np.concatenate((erp_pos[idx], erp_vel[idx]))
+
+        # Integrate the span between this ephemeris point and the next
+        sol = solve_ivp(
+            fun=orbit_ode,
+            t_span=(t0, t1),
+            y0=y0,
+            method='RK45',        # SciPy's standard Runge-Kutta 4(5) implementation
+            dense_output=True,    # Generates a continuous interpolating polynomial
+            rtol=1e-8,
+            atol=1e-8
         )
 
-        return interp_pos, interp_vel
+        # Evaluate the RK45 continuous polynomial at our specific telemetry times
+        state_at_target = sol.sol(t_eval)
 
-    else:
-        # --- MODERN MODE: SciPy Global Cubic Spline ---
-        # Fits a continuous spline to the ephemeris positions.
-        # bc_type='clamped' forces the spline boundaries to exactly match 
-        # the known velocity at the first and last ephemeris points.
+        interp_pos[mask] = state_at_target[:3, :].T
+        interp_vel[mask] = state_at_target[3:, :].T
 
-        spline = CubicSpline(erp_times, erp_pos, bc_type=((1, erp_vel[0]), (1, erp_vel[-1])))
-
-        # Evaluate the spline for position
-        interp_pos = spline(target_times)
-
-        # Evaluate the first derivative of the spline for perfectly consistent velocity
-        interp_vel = spline(target_times, 1)
-
-        return interp_pos, interp_vel
+    return interp_pos, interp_vel

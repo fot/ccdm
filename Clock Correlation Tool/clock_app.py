@@ -2,7 +2,6 @@ import sys
 import json
 import shutil
 import mimetypes
-import html
 import traceback
 import pandas as pd
 from datetime import datetime, timezone
@@ -17,7 +16,7 @@ from PyQt6.QtGui import QAction, QTextCursor, QIcon
 from PyQt6.QtCore import Qt
 
 # Local Imports
-from workers import ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker
+from workers import ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker, BatchOutputsWorker
 from data_parsing import parse_sto_contacts
 from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog,
                      BinaryExportDialog, ErpSourceDialog, NrtSourceDialog,
@@ -44,6 +43,11 @@ class ClockDriftApp(QMainWindow):
         self.maude_range = None
         self.telemetry_df = None
         self.nrt_df = None
+        self.erp_interpolate = None
+        self.base_dis = None
+        self.base_dat = None
+        self.dest_dis = None
+        self.dest_dat = None
 
         # Establishes default root for output folders and ledger tracking
         self.base_out_dir = "//noodle/fot/engineering/ccdm/Clock_Timing/Clock Correlation Output"
@@ -62,11 +66,11 @@ class ClockDriftApp(QMainWindow):
         menubar = self.menuBar()
         file_menu = menubar.addMenu("File")
 
-        action_select_nrt = QAction("Add Telemetry...", self)
+        action_select_nrt = QAction("Add Telemetry.", self)
         action_select_nrt.triggered.connect(self.open_nrt_dialog)
         file_menu.addAction(action_select_nrt)
 
-        action_select_erp = QAction("Select .erp File...", self)
+        action_select_erp = QAction("Select .erp File.", self)
         action_select_erp.triggered.connect(self.open_erp_dialog)
         file_menu.addAction(action_select_erp)
 
@@ -154,9 +158,9 @@ class ClockDriftApp(QMainWindow):
         # Output Directory Row
         out_dir_layout = QHBoxLayout()
         self.txt_out_dir = QLineEdit()
-        self.txt_out_dir.setPlaceholderText("Output directory required before generation...")
+        self.txt_out_dir.setPlaceholderText("Output directory required before generation.")
         self.txt_out_dir.setReadOnly(True)
-        self.btn_out_dir = QPushButton("Browse...")
+        self.btn_out_dir = QPushButton("Browse.")
         self.btn_out_dir.clicked.connect(self.select_output_directory)
 
         out_dir_layout.addWidget(QLabel("Output Directory:"))
@@ -321,6 +325,9 @@ class ClockDriftApp(QMainWindow):
     def open_erp_dialog(self):
         dialog = ErpSourceDialog(self)
         if dialog.exec():
+            self.erp_interpolate = dialog.erp_interpolate
+            print(f"[UI] Selected Ephemeris Interpolation Method: {self.erp_interpolate}")
+
             if dialog.selection == 'local':
                 self.select_erp_file_local()
             elif dialog.selection == 'sftp':
@@ -345,7 +352,7 @@ class ClockDriftApp(QMainWindow):
         with open(SFTP_CONFIG_PATH, 'r') as f:
             cfg = json.load(f)
 
-        self.lbl_erp_path.setText("Downloading from Lucky...")
+        self.lbl_erp_path.setText("Downloading from Lucky.")
         self.lbl_erp_path.setStyleSheet("color: #f39c12; font-weight: bold; font-style: italic;")
 
         erp_dest = Path("//noodle/fot/engineering/ccdm/Clock_Timing/ERPFiles")
@@ -420,7 +427,7 @@ class ClockDriftApp(QMainWindow):
 
         print(f"[UI] Initiating background parse for telemetry file: {Path(file_path).name}")
 
-        self.progress_dialog = QProgressDialog(f"Loading {Path(file_path).name}...", "Cancel", 0, 100, self)
+        self.progress_dialog = QProgressDialog(f"Loading {Path(file_path).name}.", "Cancel", 0, 100, self)
         self.progress_dialog.setWindowTitle("Parsing Master File")
         self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self.progress_dialog.setAutoClose(False) 
@@ -505,12 +512,13 @@ class ClockDriftApp(QMainWindow):
         for btn in self.output_buttons:
             btn.setEnabled(False)
 
-        print("[UI] Initializing Clock Correlation in background thread...")
+        print("[UI] Initializing Clock Correlation.")
         if self.legacy_mode:
             print("[UI] Execution configured for Legacy Mode overrides.")
 
         # Pass the extracted telemetry dataframe directly into the worker queue
-        self.worker = PipelineWorker(self.erp_file, self.nrt_files, self.legacy_mode, telemetry_df=self.telemetry_df)
+        self.worker = PipelineWorker(self.erp_file, self.nrt_files, self.erp_interpolate,
+                                     self.legacy_mode, telemetry_df=self.telemetry_df)
         self.worker.finished.connect(self.on_calculation_finished)
         self.worker.error.connect(self.on_calculation_error)
         self.worker.start()
@@ -532,10 +540,10 @@ class ClockDriftApp(QMainWindow):
         self.btn_run.setEnabled(True)
 
     def export_binaries(self):
-        print("[UI] Prompting for Binary DB base files...")
+        print("[UI] Prompting for Binary DB base files.")
         dialog = BinaryExportDialog(self)
         if dialog.exec():
-            print("[UI] Initiating Binary Database Export...")
+            print("[UI] Initiating Binary Database Export.")
             try:
                 out_path = Path(self.out_dir)
 
@@ -703,7 +711,7 @@ class ClockDriftApp(QMainWindow):
 
     def maude_ref_update(self):
         try:
-            print("[UI] Opening MAUDE Refdata Update and SVN Commit dialog...")
+            print("[UI] Opening MAUDE Refdata Update and SVN Commit dialog.")
 
             # Pass the path as an argument, keeping self as the parent window
             dialog = MaudeRefdataDialog(getattr(self, 'dest_dis', None),
@@ -713,20 +721,59 @@ class ClockDriftApp(QMainWindow):
             print(f"[ERROR] Failed to open MAUDE update dialog: {e}\n{traceback.format_exc()}")
 
     def run_all_outputs(self):
-        try:
-            print(f"[UI] Executing batch output generation to {Path(self.out_dir)}...")
+        """Launches batch output file generation in a background QThread."""
+        if self.nrt_df is None or not self.out_dir:
+            QMessageBox.warning(self, "Warning", "Please calculate correlation and select an output directory first.")
+            return
 
-            self.export_binaries()
-            self.generate_trending(autorun=True)
-            self.generate_correlation(autorun=True)
-            self.generate_plot(autorun=True)
-            self.update_html_record_table()
-            self.draft_email()
-            self.maude_ref_update()
+        # Prompt for binary DB base files on the GUI thread up front
+        dialog = BinaryExportDialog(self)
+        if dialog.exec():
+            self.base_dis = dialog.base_dis
+            self.base_dat = dialog.base_dat
 
-            print("[UI] Batch output generation complete.")
-        except Exception as e:
-            print(f"[ERROR] Batch output execution failed: {e}\n{traceback.format_exc()}")
+        # Disable output buttons while processing
+        for btn in self.output_buttons:
+            btn.setEnabled(False)
+
+        print(f"[UI] Initiating background batch output generation to {Path(self.out_dir)}.")
+
+        # Instantiate and configure background thread
+        self.batch_worker = BatchOutputsWorker(
+            nrt_df=self.nrt_df,
+            nrt_files=self.nrt_files,
+            erp_file=self.erp_file,
+            sto_file=self.sto_file,
+            out_dir=self.out_dir,
+            base_dis=self.base_dis,
+            base_dat=self.base_dat
+        )
+
+        self.batch_worker.log.connect(self.append_to_console)
+        self.batch_worker.finished.connect(self.on_batch_finished)
+        self.batch_worker.error.connect(self.on_batch_error)
+        self.batch_worker.start()
+
+    def on_batch_finished(self, results):
+        """Callback triggered when the background batch thread completes successfully."""
+        if results.get('dest_dis'):
+            self.dest_dis = results['dest_dis']
+        if results.get('dest_dat'):
+            self.dest_dat = results['dest_dat']
+
+        print("[UI] Batch file generation completed successfully.")
+
+        # Re-enable output buttons
+        self.check_output_ready_state()
+
+        # Launch interactive preview/commit dialogs on the main GUI thread
+        self.draft_email()
+        self.maude_ref_update()
+
+    def on_batch_error(self, err_msg):
+        """Callback triggered if an exception occurs during background execution."""
+        print(f"[ERROR] Batch output execution failed:\n{err_msg}")
+        self.check_output_ready_state()
 
     def export_csv(self):
         filetitle = get_correlation_report_title(self.nrt_df)

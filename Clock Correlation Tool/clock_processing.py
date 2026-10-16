@@ -1,11 +1,10 @@
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from astropy.time import Time
 from astropy import units as u
 
 # Local Imports
-from misc import (get_constants, load_calib_database, log_callback, is_consecutive_check, get_bundled_path)
+from misc import get_constants, load_calib_database, log_callback, is_consecutive_check, get_bundled_path
 from math_functions import (get_ground_station_position, ephemeris_interpolator,
                             two_pass_coefficient_solver, legacy_coefficient_solver)
 
@@ -20,7 +19,7 @@ EPOCH_OFFSET_1958_TO_1985 = constants['EPOCH_OFFSET_1958_TO_1985']
 # ---------------------------------------------------------
 # MAIN PIPELINE
 # ---------------------------------------------------------
-def calculate_clock_drift(erp_df, nrt_df, legacy_mode=True):
+def calculate_clock_drift(erp_df, nrt_df, erp_interpolate, legacy_mode=True):
     """
     Main driver for applying delays and executing daily/weekly 
     trending routines against fully parsed DataFrames.
@@ -85,7 +84,7 @@ def calculate_clock_drift(erp_df, nrt_df, legacy_mode=True):
     header_abs_time = (nrt_df['datetime'] - epoch_1985_dt).dt.total_seconds().values
     time_offsets = header_abs_time - ert_times if legacy_mode else np.zeros(len(nrt_df))
 
-    sc_pos_func, sc_vel_func = ephemeris_interpolator(ert_times, erp_times, erp_positions, erp_velocities, legacy_mode)
+    sc_pos_func, sc_vel_func = ephemeris_interpolator(ert_times, erp_times, erp_positions, erp_velocities, erp_interpolate, legacy_mode)
     nrt_df['sc_pos_x'] = sc_pos_func[:, 0]
     nrt_df['sc_pos_y'] = sc_pos_func[:, 1]
     nrt_df['sc_pos_z'] = sc_pos_func[:, 2]
@@ -167,7 +166,7 @@ def daily_trending(nrt_df, legacy_mode=False):
         nrt_df.loc[idx, "init_time"] =      c1
         nrt_df.loc[idx, 'rate'] =           c2
         nrt_df.loc[idx, 'drift'] =          c3
-        nrt_df.loc[idx, 'resid_usec'] =     residuals_sec / (1e-6 * 1e2) # in usec
+        nrt_df.loc[idx, 'resid_usec'] =     residuals_sec / (1e-6 * 1e1) # in usec
         nrt_df.loc[idx, 'resid_variance'] = s2
 
         # 2nd order standard deviations for this pass
@@ -195,11 +194,10 @@ def weekly_trending(nrt_df, legacy_mode=False):
     global_delta_tsc = global_tsc - global_tsc[0]
 
     # --- QUADRATIC FIT (2nd Order) ---
-    # if legacy_mode:
-    #     results = legacy_coefficient_solver(global_delta_vcdu, global_delta_tsc, scale=scale)
-    # else:
-    #     results = two_pass_coefficient_solver(global_delta_vcdu, global_delta_tsc, scale=scale)
-    results = legacy_coefficient_solver(global_delta_vcdu, global_delta_tsc, scale=scale)
+    if legacy_mode:
+        results = legacy_coefficient_solver(global_delta_vcdu, global_delta_tsc, scale=scale)
+    else:
+        results = two_pass_coefficient_solver(global_delta_vcdu, global_delta_tsc, scale=scale)
 
     global_c1 = results["coeffs"]["T0"]
     global_c2 = results["coeffs"]["R0"]
@@ -215,7 +213,7 @@ def weekly_trending(nrt_df, legacy_mode=False):
     nrt_df['global_init_time'] =   global_c1 + global_tsc[0]
     nrt_df['global_rate'] =        global_c2
     nrt_df['global_drift'] =       global_c3
-    nrt_df['global_resid_musec'] = global_residuals_sec / (1e-6 * 1e2) # in usec
+    nrt_df['global_resid_musec'] = global_residuals_sec / (1e-6 * 1e1) # in usec
     nrt_df['global_variance'] =    global_s2
 
     # 2nd order standard deviations

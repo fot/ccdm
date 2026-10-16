@@ -1,12 +1,18 @@
 import json
 import traceback
+import shutil
 from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
+from datetime import datetime, timezone
 import pandas as pd
 
 from data_parsing import parse_erp_file, parse_nrt_file, parse_sto_file
 from clock_processing import calculate_clock_drift
-from misc import SFTP_CONFIG_PATH
+from misc import SFTP_CONFIG_PATH, get_incremented_clkhst_name
+from binary_convert import convert_dis_file, convert_dat_file
+from reports import (generate_trending_report, generate_correlation_report,
+                     update_html_table, get_correlation_report_title)
+from plots import generate_residual_plot
 
 try:
     import paramiko
@@ -51,7 +57,7 @@ class SFTPWorker(QThread):
             with open(SFTP_CONFIG_PATH, 'r') as f:
                 cfg = json.load(f)
 
-            self.log.emit(f"[UI] Connecting to SFTP server {cfg.get('host')}...\n")
+            self.log.emit(f"[UI] Connecting to SFTP server {cfg.get('host')}.\n")
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -89,7 +95,7 @@ class SFTPWorker(QThread):
             if not latest_file:
                 raise FileNotFoundError(f"[UI] No {self.file_ext} files matching criteria found in {self.remote_dir}\n")
 
-            self.log.emit(f"[UI] Found latest file: {latest_file}. Downloading...\n")
+            self.log.emit(f"[UI] Found latest file: {latest_file}. Downloading.\n")
 
             if self.dest_dir:
                 cache_dir = Path(self.dest_dir)
@@ -114,12 +120,13 @@ class PipelineWorker(QThread):
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, erp_file, nrt_files, legacy_mode=False, telemetry_df=None):
+    def __init__(self, erp_file, nrt_files, erp_interpolate, legacy_mode=False, telemetry_df=None):
         super().__init__()
         self.erp_file = erp_file
         self.nrt_files = nrt_files
         self.legacy_mode = legacy_mode
         self.telemetry_df = telemetry_df
+        self.erp_interpolate = erp_interpolate
 
     def run(self):
         try:
@@ -130,7 +137,7 @@ class PipelineWorker(QThread):
             nrt_dataframes = []
 
             if self.telemetry_df is not None:
-                print(f"[UI] Passing {len(self.telemetry_df)} sliced STO data points into the correlation engine...")
+                print(f"[UI] Passing {len(self.telemetry_df)} sliced STO data points into the correlation engine.")
                 nrt_dataframes.append(self.telemetry_df)
 
             for path in self.nrt_files:
@@ -142,7 +149,7 @@ class PipelineWorker(QThread):
             nrt_df = pd.concat(nrt_dataframes, ignore_index=True)
 
             # 3. Execute Processing Logic using pure DataFrames
-            result_df = calculate_clock_drift(erp_df, nrt_df, legacy_mode=self.legacy_mode)
+            result_df = calculate_clock_drift(erp_df, nrt_df, self.erp_interpolate, legacy_mode=self.legacy_mode)
 
             self.finished.emit(result_df)
 
@@ -183,3 +190,81 @@ class StoParserWorker(QThread):
             return False
         self.progress.emit(val)
         return True
+
+
+class BatchOutputsWorker(QThread):
+    """Background worker for batch output generation without UI freezing."""
+    log = pyqtSignal(str)
+    finished = pyqtSignal(dict)  # Returns generated metadata like dest_dis/dest_dat
+    error = pyqtSignal(str)
+
+    def __init__(self, nrt_df, nrt_files, erp_file, sto_file, out_dir, base_dis=None, base_dat=None, parent=None):
+        super().__init__(parent)
+        self.nrt_df = nrt_df
+        self.nrt_files = nrt_files
+        self.erp_file = erp_file
+        self.sto_file = sto_file
+        self.out_dir = out_dir
+        self.base_dis = base_dis
+        self.base_dat = base_dat
+
+    def run(self):
+        results = {'dest_dis': None, 'dest_dat': None}
+        out_path = Path(self.out_dir)
+
+        try:
+            # 1. Export Binaries (.dis / .dat)
+            if self.base_dis:
+                self.log.emit("[Batch] Converting .DIS binary database.")
+                dest_dis = (out_path / get_incremented_clkhst_name(self.base_dis)).with_suffix('.dis')
+                shutil.copy(self.base_dis, dest_dis)
+                convert_dis_file(self.nrt_df, inputdir=str(self.base_dis), outputdir=str(dest_dis))
+                results['dest_dis'] = dest_dis
+                if ".sftp_cache" in Path(self.base_dis).parts:
+                    Path(self.base_dis).unlink(missing_ok=True)
+                self.log.emit(f"[Batch] .DIS exported: {dest_dis.name}\n")
+
+            if self.base_dat:
+                self.log.emit("[Batch] Converting .DAT binary database.")
+                dest_dat = (out_path / get_incremented_clkhst_name(self.base_dat)).with_suffix('.dat')
+                shutil.copy(self.base_dat, dest_dat)
+                convert_dat_file(self.nrt_df, inputdir=str(self.base_dat), outputdir=str(dest_dat))
+                results['dest_dat'] = dest_dat
+                if ".sftp_cache" in Path(self.base_dat).parts:
+                    Path(self.base_dat).unlink(missing_ok=True)
+                self.log.emit(f"[Batch] .DAT exported: {dest_dat.name}\n")
+
+            # 2. Trending Report (.xlsx)
+            self.log.emit("[Batch] Generating Trending Report (.xlsx).")
+            trend_dir = Path("//noodle/fot/users/rhoover/Clock Tool Development Files")
+            trend_file = trend_dir / "Clock Rate Trending (Test).xlsx"
+            generate_trending_report(self.nrt_df, trend_file)
+            self.log.emit("[Batch] Trending Report generated.\n")
+
+            # 3. Correlation Report (.txt)
+            self.log.emit("[Batch] Generating Correlation Report (.txt).")
+            filetitle = get_correlation_report_title(self.nrt_df)
+            corr_file = out_path / f"{filetitle}.txt"
+            generate_correlation_report(
+                self.nrt_df, self.nrt_files, self.erp_file, self.sto_file, corr_file.parent
+            )
+            self.log.emit(f"[Batch] Correlation Report generated: {corr_file.name}\n")
+
+            # 4. Residual Plot (.png)
+            self.log.emit("[Batch] Rendering Residual Plot (.png).")
+            plot_file = out_path / f"{filetitle}_residuals.png"
+            generate_residual_plot(self.nrt_df, plot_file)
+            self.log.emit(f"[Batch] Residual Plot saved: {plot_file.name}\n")
+
+            # 5. Master HTML Record Table
+            self.log.emit("[Batch] Updating Master HTML Record Table.")
+            now = datetime.now(timezone.utc)
+            html_dir = Path("//noodle/fot/users/rhoover/Clock Tool Development Files")
+            html_file = html_dir / f"Clock_Correlation{now.strftime('%Y')}.htm"
+            update_html_table(self.nrt_df, html_file)
+            self.log.emit("[Batch] Master HTML Table updated.\n")
+
+            self.finished.emit(results)
+
+        except Exception as e:
+            self.error.emit(f"{e}\n{traceback.format_exc()}")

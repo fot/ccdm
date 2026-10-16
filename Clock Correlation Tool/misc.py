@@ -74,11 +74,10 @@ def is_consecutive_check(df):
     if failed_rows.empty:
         log_callback("corrected_vcdu consecutive check: PASS")
     else:
-        log_callback("corrected_vcdu consecutive check: FAIL")
-
         # Log the specific failing indices and their values for debugging
         error_details = failed_rows[['pass_id', 'corrected_vcdu']].to_string()
         log_callback(f"Sequence broken at these rows:\n{error_details}")
+
 
 def get_incremented_clkhst_name(filepath):
                     p = Path(filepath)

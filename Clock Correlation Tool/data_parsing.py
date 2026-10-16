@@ -1,11 +1,11 @@
 import os
 from astropy.time import Time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from misc import log_callback
+from misc import log_callback, get_cumulative_leap_seconds
 
 
 def nrt_keep_data(item):
@@ -32,6 +32,7 @@ def parse_erp_file(filepath):
             parts = line.split()
             if len(parts) == 7 and ':' in parts[0] and parts[0][:4].isdigit():
                 dt = datetime.strptime(parts[0], "%Y:%j:%H:%M:%S.%f")
+                dt = dt - timedelta(seconds=get_cumulative_leap_seconds(dt))
                 t_utc = Time(dt, scale="utc")
                 abs_time = (t_utc.tai - epoch_1958_tai).sec
 
@@ -138,7 +139,27 @@ def parse_sto_file(filepath, progress_callback=None):
     if len(data) > 0:
         log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
 
-    return pd.DataFrame(data)
+        # --- Create dataframe and truncate data to 08:00 to 08:00 time ranges ---
+        df = pd.DataFrame(data)
+
+        # 1. Extract the first and last datetime objects (fixing the .iloc bracket syntax)
+        first_dt = df['datetime'].iloc[0]
+        last_dt = df['datetime'].iloc[-1]
+
+        # 2. Force both bounds to exactly 08:00:00
+        filter_start = first_dt.replace(hour=8, minute=0, second=0, microsecond=0)
+        filter_end = last_dt.replace(hour=8, minute=0, second=0, microsecond=0)
+
+        # 3. Filter the dataframe to only keep rows within these bounds
+        df = df[(df['datetime'] >= filter_start) & (df['datetime'] <= filter_end)]
+
+        # Reset the index cleanly after dropping rows
+        df = df.reset_index(drop=True)
+
+        log_callback(f"Truncated STO data from {filter_start.strftime('%Y:%j:%H:%M')} to {filter_end.strftime('%Y:%j:%H:%M')}. {len(df)} entries remain.")
+        return df
+
+    return pd.DataFrame(data) # default return /w no filtering
 
 
 def parse_sto_contacts(df, time_col='datetime'):

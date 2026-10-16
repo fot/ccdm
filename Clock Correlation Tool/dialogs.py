@@ -3,7 +3,7 @@ import traceback
 from pathlib import Path
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-                             QLabel, QFileDialog, QTextEdit, QMessageBox,
+                             QLabel, QFileDialog, QTextEdit, QMessageBox, QComboBox,
                              QDateTimeEdit, QFormLayout, QGroupBox, QLineEdit, QWidget,
                              QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 from PyQt6.QtCore import QDateTime, QTime, Qt
@@ -203,11 +203,20 @@ class ErpSourceDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Ephemeris Source")
-        self.resize(360, 150)
+        self.resize(360, 200)
         self.selection = None  # 'local' or 'sftp'
+        self.erp_interpolate = None
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("<b>Choose how to acquire the Ephemeris (.erp) file:</b>"))
+
+        # Interpolation Method Dropdown
+        interp_layout = QHBoxLayout()
+        interp_label = QLabel("Interpolation Method:")
+        self.combo_interp = QComboBox()
+        self.combo_interp.addItems(["HPOP (RK45) (Default)", "Cubic Hermite Spline (Legacy)", "Cowell"])
+        interp_layout.addWidget(interp_label)
+        interp_layout.addWidget(self.combo_interp)
 
         self.btn_local = QPushButton("Select Local .erp File")
         self.btn_local.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 8px;")
@@ -217,11 +226,13 @@ class ErpSourceDialog(QDialog):
         self.btn_sftp.setStyleSheet("background-color: #8e44ad; color: white; font-weight: bold; padding: 8px;")
         self.btn_sftp.clicked.connect(lambda: self.set_selection('sftp'))
 
+        layout.addLayout(interp_layout)
         layout.addWidget(self.btn_local)
         layout.addWidget(self.btn_sftp)
 
     def set_selection(self, mode):
         self.selection = mode
+        self.erp_interpolate = self.combo_interp.currentText()
         self.accept()
 
 
