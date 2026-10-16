@@ -66,11 +66,11 @@ class ClockDriftApp(QMainWindow):
         menubar = self.menuBar()
         file_menu = menubar.addMenu("File")
 
-        action_select_nrt = QAction("Add Telemetry.", self)
+        action_select_nrt = QAction("Add Telemetry", self)
         action_select_nrt.triggered.connect(self.open_nrt_dialog)
         file_menu.addAction(action_select_nrt)
 
-        action_select_erp = QAction("Select .erp File.", self)
+        action_select_erp = QAction("Select .ERP File", self)
         action_select_erp.triggered.connect(self.open_erp_dialog)
         file_menu.addAction(action_select_erp)
 
