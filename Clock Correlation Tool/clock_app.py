@@ -70,7 +70,7 @@ class ClockDriftApp(QMainWindow):
         action_select_nrt.triggered.connect(self.open_nrt_dialog)
         file_menu.addAction(action_select_nrt)
 
-        action_select_erp = QAction("Select .ERP File", self)
+        action_select_erp = QAction("Select Ephemeris File (.ERP)", self)
         action_select_erp.triggered.connect(self.open_erp_dialog)
         file_menu.addAction(action_select_erp)
 
@@ -160,7 +160,7 @@ class ClockDriftApp(QMainWindow):
         self.txt_out_dir = QLineEdit()
         self.txt_out_dir.setPlaceholderText("Output directory required before generation.")
         self.txt_out_dir.setReadOnly(True)
-        self.btn_out_dir = QPushButton("Browse.")
+        self.btn_out_dir = QPushButton("Browse")
         self.btn_out_dir.clicked.connect(self.select_output_directory)
 
         out_dir_layout.addWidget(QLabel("Output Directory:"))

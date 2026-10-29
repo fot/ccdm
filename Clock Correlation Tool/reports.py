@@ -408,7 +408,8 @@ def generate_trending_report(nrt_df, output_path=None):
 
     # Define astropy Time epochs in TAI (continuous seconds, no leap seconds)
     epoch_1958 = Time('1958-01-01 00:00:00', scale='tai')
-    epoch_1985 = Time('1985-01-01 00:00:00', scale='tai')
+    # epoch_1985 = Time('1985-01-01 00:00:00', scale='tai')
+    epoch_1985 = datetime(1985, 1, 1, 0, 0, 0)
 
     # Int64 Overflow s/ VCDU Rollover Protection
     vcdus = nrt_df['vcdu'].values.astype(np.float64).copy() 
@@ -449,35 +450,31 @@ def generate_trending_report(nrt_df, output_path=None):
     added_count = 0  # Replaces 'i' to ensure Excel row spacing is accurate after skipping
 
     for day_id, group in nrt_df.groupby('pass_id'):
-        pass_vcdu = group['vcdu'].values
 
         # Pull the new 2nd-order degree fit data
-        trend_init_time = group['init_time'].iloc[0]
+        ref_time_sec = group['adjusted_ground_time'].iloc[0]
         trend_rate = group['rate'].iloc[0]
         trend_drift = group['drift'].iloc[0]
+        vcdu_ref = int(group['vcdu'].iloc[0])
 
-        major_frames = pass_vcdu[pass_vcdu % 128 == 0]
-        vcdu_ref = int(major_frames[0]) if len(major_frames) > 0 else int(pass_vcdu[0] + (128 - (pass_vcdu[0] % 128)))
-        delta_to_ref = vcdu_ref - pass_vcdu[0]
+        # Calculate ref_time_sec (avoids hardware jitters)
+        # trend_init_time = group['init_time'].iloc[0]
+        # delta_to_ref = -1.0
+        # ref_time_sec = (trend_init_time +
+        #                 (trend_rate * delta_to_ref) +
+        #                 ((trend_drift / 2.0) * (delta_to_ref ** 2)))
 
-        # Evaluate the absolute 2nd-degree polynomial directly at the major frame
-        ref_time_sec = (trend_init_time +
-                       (trend_rate * delta_to_ref) +
-                       ((trend_drift / 2.0) * (delta_to_ref ** 2)))
+        dt_datetime = epoch_1985 + timedelta(seconds=ref_time_sec)
 
-        # --- ASTROPY TIME CONVERSION ---
-        dt_final_tai = epoch_1985 + (ref_time_sec * u.second)
-        dt_final_utc = dt_final_tai.utc
-        dt_datetime = dt_final_utc.datetime
-        
+        hosc_final = dt_datetime.strftime('%Y:%j:%H:%M:%S.%f')
+        doy_decimal = (dt_datetime.timetuple().tm_yday + (dt_datetime.hour / 24.0) +
+                       (dt_datetime.minute / 1440.0) + ((dt_datetime.second + dt_datetime.microsecond / 1e6) / 86400.0))
+
         # --- OVERLAP / DUPLICATE CHECK ---
         # Skip this pass if the generated time is older than or equal to the last recorded report time
         if last_existing_time and dt_datetime <= last_existing_time:
             skipped_count += 1
             continue
-
-        hosc_final = dt_datetime.strftime('%Y:%j:%H:%M:%S.%f')
-        doy_decimal = dt_datetime.timetuple().tm_yday + (dt_datetime.hour / 24.0) + (dt_datetime.minute / 1440.0) + ((dt_datetime.second + dt_datetime.microsecond / 1e6) / 86400.0)
 
         # --- EXCEL FORMULA INJECTION ---
         excel_row = current_max_row + 1 + added_count

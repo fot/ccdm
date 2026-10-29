@@ -208,7 +208,7 @@ class ErpSourceDialog(QDialog):
         self.erp_interpolate = None
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("<b>Choose how to acquire the Ephemeris (.erp) file:</b>"))
+        layout.addWidget(QLabel("<b>Choose how to acquire the Ephemeris (.ERP) file:</b>"))
 
         # Interpolation Method Dropdown
         interp_layout = QHBoxLayout()
@@ -218,7 +218,7 @@ class ErpSourceDialog(QDialog):
         interp_layout.addWidget(interp_label)
         interp_layout.addWidget(self.combo_interp)
 
-        self.btn_local = QPushButton("Select Local .erp File")
+        self.btn_local = QPushButton("Select .ERP File")
         self.btn_local.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 8px;")
         self.btn_local.clicked.connect(lambda: self.set_selection('local'))
 
@@ -247,15 +247,15 @@ class NrtSourceDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("<b>Choose how to add telemetry data:</b>"))
 
-        self.btn_local = QPushButton("Select Local .nrt File(s)")
+        self.btn_local = QPushButton("Select .NRT File(s)")
         self.btn_local.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 8px;")
         self.btn_local.clicked.connect(lambda: self.set_selection('local'))
 
-        self.btn_maude = QPushButton("MAUDE Database Query...")
+        self.btn_maude = QPushButton("MAUDE Database Query")
         self.btn_maude.setStyleSheet("background-color: #2c3e50; color: white; font-weight: bold; padding: 8px;")
         self.btn_maude.clicked.connect(lambda: self.set_selection('maude'))
 
-        self.btn_sto = QPushButton("Extract from Master .STO File...")
+        self.btn_sto = QPushButton("Extract from .STO File")
         self.btn_sto.setStyleSheet("background-color: #16a085; color: white; font-weight: bold; padding: 8px;")
         self.btn_sto.clicked.connect(lambda: self.set_selection('sto'))
 
