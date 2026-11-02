@@ -21,8 +21,8 @@ from workers import (ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker,
 from data_parsing import parse_sto_contacts
 from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog,
                      BinaryExportDialog, ErpSourceDialog, DataSourceDialog,
-                     StoContactSelectionDialog, EmailPreviewDialog, MaudeRefdataDialog,
-                     SvnConfigDialog)
+                     StoSourceDialog, StoContactSelectionDialog, EmailPreviewDialog,
+                     MaudeRefdataDialog, SvnConfigDialog)
 from binary_convert import convert_dis_file, convert_dat_file
 from reports import (generate_trending_report, generate_correlation_report,
                      get_correlation_report_title, update_html_table,
@@ -41,6 +41,7 @@ class ClockDriftApp(QMainWindow):
         self.erp_file = None
         self.nrt_files = []
         self.sto_file = None
+        self.current_sto_filepaths = []
         self.maude_range = None
         self.telemetry_df = None
         self.nrt_df = None
@@ -129,16 +130,10 @@ class ClockDriftApp(QMainWindow):
 
         self.list_nrt_files = QListWidget()
         self.list_nrt_files.setMinimumHeight(160)
-
-        # 1. Enable vertical scrolling per pixel (rather than per item row)
         self.list_nrt_files.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.list_nrt_files.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-
-        # 2. Always show or enable vertical scrollbars as needed.
         self.list_nrt_files.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.list_nrt_files.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        # 3. Enable word wrapping so multi-line strings don't clip
         self.list_nrt_files.setWordWrap(True)
 
         nrt_layout.addWidget(self.list_nrt_files)
@@ -225,7 +220,7 @@ class ClockDriftApp(QMainWindow):
         self.btn_email.clicked.connect(self.draft_email)
 
         output_row2.addWidget(self.btn_run_all)
-        output_row2.addWidget(self.btn_email) # Inject it next to the run_all button
+        output_row2.addWidget(self.btn_email)
 
         output_main_layout.addLayout(output_row1)
         output_main_layout.addLayout(output_row2)
@@ -392,7 +387,6 @@ class ClockDriftApp(QMainWindow):
         dialog = DataSourceDialog(self)
         if dialog.exec():
             if dialog.selection == 'local':
-                # If they were using STO or MAUDE previously, wipe it out before adding NRTs
                 if self.telemetry_df is not None or self.maude_range is not None:
                     self.clear_telemetry_queue()
                 self.select_nrt_files()
@@ -429,31 +423,31 @@ class ClockDriftApp(QMainWindow):
             self.check_ready_state()
 
     def open_sto_parser(self):
-        """Spawns a progress dialog and dispatches the heavy STO parsing to a background thread."""
-        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/STOFiles")
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Master Telemetry File (.STO / .NRT)",
-            str(default_dir),
-            "Telemetry Files (*.sto *.nrt *.csv *.txt);;All Files (*.*)"
-        )
-
-        if not file_path:
+        """Spawns StoSourceDialog to pick up to 3 STO files and parses them in a background thread."""
+        dialog = StoSourceDialog(self)
+        if not dialog.exec():
             return
 
-        self.current_sto_filepath = file_path 
+        selected_files = dialog.selected_files
+        if not selected_files:
+            return
 
-        print(f"[UI] Initiating background parse for telemetry file: {Path(file_path).name}")
+        self.current_sto_filepaths = selected_files
+        file_names_str = ", ".join([Path(f).name for f in selected_files])
+        print(f"[UI] Initiating background parse for {len(selected_files)} STO file(s): {file_names_str}")
 
-        self.progress_dialog = QProgressDialog(f"Loading {Path(file_path).name}.", "Cancel", 0, 100, self)
-        self.progress_dialog.setWindowTitle("Parsing Master File")
+        initial_msg = f"Loading file 1 of {len(selected_files)}: {Path(selected_files[0]).name}"
+        self.progress_dialog = QProgressDialog(initial_msg, "Cancel", 0, 100, self)
+        self.progress_dialog.setWindowTitle("Parsing Master File(s)")
         self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self.progress_dialog.setAutoClose(False) 
         self.progress_dialog.setAutoReset(False) 
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setValue(0)
 
-        self.sto_worker = StoParserWorker(file_path)
+        self.sto_worker = StoParserWorker(selected_files)
         self.sto_worker.progress.connect(self.progress_dialog.setValue)
+        self.sto_worker.status.connect(self.progress_dialog.setLabelText)  # Dynamic label updates
         self.sto_worker.finished.connect(self.on_sto_parsed)
         self.sto_worker.error.connect(self.on_sto_error)
 
@@ -497,9 +491,11 @@ class ClockDriftApp(QMainWindow):
             if 'time_diff' in self.telemetry_df.columns:
                 self.telemetry_df = self.telemetry_df.drop(columns=['time_diff', 'support_id'])
 
-            # FIX: Append the master file to the queue list so reports.py doesn't crash on Path(None)
-            if hasattr(self, 'current_sto_filepath') and self.current_sto_filepath not in self.nrt_files:
-                self.nrt_files.append(self.current_sto_filepath)
+            # Append the master file(s) to the queue list so downstream reports don't crash on empty paths
+            if hasattr(self, 'current_sto_filepaths'):
+                for fpath in self.current_sto_filepaths:
+                    if fpath not in self.nrt_files:
+                        self.nrt_files.append(fpath)
 
             summary_str = "\n".join(display_strs)
             self.list_nrt_files.addItem(summary_str)
@@ -634,7 +630,7 @@ class ClockDriftApp(QMainWindow):
                     # 1. Set the standard plain-text fallback
                     msg.set_content(email_data['plain_body'], cte='8bit')
 
-                    # 2. Add teh fomatted HTLM alternative
+                    # 2. Add the formatted HTML alternative
                     msg.add_alternative(email_data['html_body'], subtype='html', cte='8bit')
 
                     if email_data['attachment'] and Path(email_data['attachment']).exists():
@@ -738,9 +734,8 @@ class ClockDriftApp(QMainWindow):
         try:
             print("[UI] Opening MAUDE Refdata Update and SVN Commit dialog.")
 
-            # Pass the path as an argument, keeping self as the parent window
             dialog = MaudeRefdataDialog(getattr(self, 'dest_dis', None),
-                                        self.nrt_df, parent = self)
+                                        self.nrt_df, parent=self)
             dialog.exec()
         except Exception as e:
             print(f"[ERROR] Failed to open MAUDE update dialog: {e}\n{traceback.format_exc()}")
@@ -751,19 +746,16 @@ class ClockDriftApp(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please calculate correlation and select an output directory first.")
             return
 
-        # Prompt for binary DB base files on the GUI thread up front
         dialog = BinaryExportDialog(self)
         if dialog.exec():
             self.base_dis = dialog.base_dis
             self.base_dat = dialog.base_dat
 
-        # Disable output buttons while processing
         for btn in self.output_buttons:
             btn.setEnabled(False)
 
         print(f"[UI] Initiating background batch output generation to {Path(self.out_dir)}.")
 
-        # Instantiate and configure background thread
         self.batch_worker = BatchOutputsWorker(
             nrt_df=self.nrt_df,
             nrt_files=self.nrt_files,
@@ -788,10 +780,8 @@ class ClockDriftApp(QMainWindow):
 
         print("[UI] Batch file generation completed successfully.")
 
-        # Re-enable output buttons
         self.check_output_ready_state()
 
-        # Launch interactive preview/commit dialogs on the main GUI thread
         self.draft_email()
         self.maude_ref_update()
 
@@ -811,7 +801,6 @@ class ClockDriftApp(QMainWindow):
         if not file_path:
             return
 
-        # Setup Progress Dialog
         self.csv_progress_dialog = QProgressDialog(f"Exporting {Path(file_path).name}...", "Cancel", 0, 100, self)
         self.csv_progress_dialog.setWindowTitle("CSV Export")
         self.csv_progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
@@ -820,13 +809,11 @@ class ClockDriftApp(QMainWindow):
         self.csv_progress_dialog.setMinimumDuration(0)
         self.csv_progress_dialog.setValue(0)
 
-        # Initialize and connect worker
         self.csv_worker = ExportCSVWorker(self.nrt_df, file_path)
         self.csv_worker.progress.connect(self.csv_progress_dialog.setValue)
         self.csv_worker.finished.connect(self.on_csv_success)
         self.csv_worker.error.connect(self.on_csv_error)
 
-        # Connect Cancel button
         self.csv_progress_dialog.canceled.connect(self.csv_worker.cancel)
 
         self.csv_worker.start()
@@ -849,7 +836,7 @@ class ClockDriftApp(QMainWindow):
         self.nrt_files.clear()
         self.telemetry_df = None
         self.maude_range = None
-        self.current_sto_filepath = None
+        self.current_sto_filepaths = []
         self.list_nrt_files.clear()
         print("[UI] Telemetry queue cleared.")
 
@@ -863,7 +850,6 @@ class ClockDriftApp(QMainWindow):
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            # Restore standard output before closing, keeping your original logic
             sys.stdout = sys.__stdout__ 
             event.accept()
         else:
