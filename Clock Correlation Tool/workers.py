@@ -268,3 +268,52 @@ class BatchOutputsWorker(QThread):
 
         except Exception as e:
             self.error.emit(f"{e}\n{traceback.format_exc()}")
+
+
+class ExportCSVWorker(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, df, file_path, parent=None):
+        super().__init__(parent)
+        self.df = df
+        self.file_path = file_path
+        self._is_canceled = False
+
+    def cancel(self):
+        self._is_canceled = True
+
+    def run(self):
+        try:
+            total_rows = len(self.df)
+            if total_rows == 0:
+                self.df.to_csv(self.file_path, index=False)
+                self.progress.emit(100)
+                self.finished.emit(self.file_path)
+                return
+
+            # Divide dataframe into ~100 chunks for smooth progress updates
+            chunk_size = max(1, total_rows // 100)
+
+            for i in range(0, total_rows, chunk_size):
+                if self._is_canceled:
+                    self.error.emit("Export canceled by user.")
+                    return
+
+                chunk = self.df.iloc[i : i + chunk_size]
+
+                # Write header only on the first chunk; append the rest
+                mode = 'w' if i == 0 else 'a'
+                header = True if i == 0 else False
+
+                chunk.to_csv(self.file_path, mode=mode, header=header, index=False)
+
+                # Calculate and emit completion percentage
+                pct = int(((i + len(chunk)) / total_rows) * 100)
+                self.progress.emit(pct)
+
+            self.finished.emit(self.file_path)
+
+        except Exception as e:
+            self.error.emit(f"{e}\n{traceback.format_exc()}")

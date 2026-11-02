@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from email.message import EmailMessage
 
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
+from PyQt6.QtWidgets import (QAbstractItemView, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QListWidget,
                              QFileDialog, QTextEdit, QMessageBox, QCheckBox,
                              QLineEdit, QGroupBox, QProgressDialog)
@@ -16,10 +16,11 @@ from PyQt6.QtGui import QAction, QTextCursor, QIcon
 from PyQt6.QtCore import Qt
 
 # Local Imports
-from workers import ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker, BatchOutputsWorker
+from workers import (ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker,
+                     BatchOutputsWorker, ExportCSVWorker)
 from data_parsing import parse_sto_contacts
 from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog,
-                     BinaryExportDialog, ErpSourceDialog, NrtSourceDialog,
+                     BinaryExportDialog, ErpSourceDialog, DataSourceDialog,
                      StoContactSelectionDialog, EmailPreviewDialog, MaudeRefdataDialog,
                      SvnConfigDialog)
 from binary_convert import convert_dis_file, convert_dat_file
@@ -128,7 +129,18 @@ class ClockDriftApp(QMainWindow):
 
         self.list_nrt_files = QListWidget()
         self.list_nrt_files.setMinimumHeight(160)
-        self.list_nrt_files.setMaximumHeight(160)
+
+        # 1. Enable vertical scrolling per pixel (rather than per item row)
+        self.list_nrt_files.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.list_nrt_files.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+        # 2. Always show or enable vertical scrollbars as needed.
+        self.list_nrt_files.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list_nrt_files.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        # 3. Enable word wrapping so multi-line strings don't clip
+        self.list_nrt_files.setWordWrap(True)
+
         nrt_layout.addWidget(self.list_nrt_files)
         input_group_layout.addLayout(nrt_layout)
 
@@ -377,13 +389,18 @@ class ClockDriftApp(QMainWindow):
 
     def open_nrt_dialog(self):
         """Routes the user to their chosen telemetry input method."""
-        dialog = NrtSourceDialog(self)
+        dialog = DataSourceDialog(self)
         if dialog.exec():
             if dialog.selection == 'local':
+                # If they were using STO or MAUDE previously, wipe it out before adding NRTs
+                if self.telemetry_df is not None or self.maude_range is not None:
+                    self.clear_telemetry_queue()
                 self.select_nrt_files()
             elif dialog.selection == 'maude':
+                self.clear_telemetry_queue()
                 self.open_maude_dialog()
             elif dialog.selection == 'sto':
+                self.clear_telemetry_queue()
                 self.open_sto_parser()
 
     def select_nrt_files(self):
@@ -415,8 +432,8 @@ class ClockDriftApp(QMainWindow):
         """Spawns a progress dialog and dispatches the heavy STO parsing to a background thread."""
         default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/STOFiles")
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Master Telemetry File (.STO / .NRT)", 
-            str(default_dir), 
+            self, "Select Master Telemetry File (.STO / .NRT)",
+            str(default_dir),
             "Telemetry Files (*.sto *.nrt *.csv *.txt);;All Files (*.*)"
         )
 
@@ -507,6 +524,14 @@ class ClockDriftApp(QMainWindow):
 
     def run_calculation(self):
         self.btn_run.setEnabled(False)
+
+        # Reset output tracking variables for each new run
+        self.nrt_df = None
+        self.base_dis = None
+        self.base_dat = None
+        self.dest_dis = None
+        self.dest_dat = None
+
         self.txt_output.clear()
 
         for btn in self.output_buttons:
@@ -777,13 +802,56 @@ class ClockDriftApp(QMainWindow):
 
     def export_csv(self):
         filetitle = get_correlation_report_title(self.nrt_df)
-        file_path, _ = QFileDialog.getSaveFileName(self, "Export Raw DataFrame", str(Path(self.out_dir) / f"{filetitle}.csv"), "CSV Files (*.csv)")
-        if file_path:
-            try:
-                self.nrt_df.to_csv(file_path, index=False)
-                print(f"[UI] Raw Data exported to {file_path}")
-            except Exception as e:
-                print(f"[ERROR] CSV Export failed: {e}\n{traceback.format_exc()}")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Raw DataFrame", 
+            str(Path(self.out_dir) / f"{filetitle}.csv"), 
+            "CSV Files (*.csv)"
+        )
+
+        if not file_path:
+            return
+
+        # Setup Progress Dialog
+        self.csv_progress_dialog = QProgressDialog(f"Exporting {Path(file_path).name}...", "Cancel", 0, 100, self)
+        self.csv_progress_dialog.setWindowTitle("CSV Export")
+        self.csv_progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.csv_progress_dialog.setAutoClose(True)
+        self.csv_progress_dialog.setAutoReset(True)
+        self.csv_progress_dialog.setMinimumDuration(0)
+        self.csv_progress_dialog.setValue(0)
+
+        # Initialize and connect worker
+        self.csv_worker = ExportCSVWorker(self.nrt_df, file_path)
+        self.csv_worker.progress.connect(self.csv_progress_dialog.setValue)
+        self.csv_worker.finished.connect(self.on_csv_success)
+        self.csv_worker.error.connect(self.on_csv_error)
+
+        # Connect Cancel button
+        self.csv_progress_dialog.canceled.connect(self.csv_worker.cancel)
+
+        self.csv_worker.start()
+
+    def on_csv_success(self, file_path):
+        print(f"[UI] Raw Data successfully exported to {file_path}")
+
+    def on_csv_error(self, err_msg):
+        if hasattr(self, 'csv_progress_dialog'):
+            self.csv_progress_dialog.close()
+        
+        if "canceled by user" in err_msg:
+            print("[UI] CSV Export canceled.")
+        else:
+            print(f"[ERROR] CSV Export failed:\n{err_msg}")
+            QMessageBox.critical(self, "Export Error", f"CSV Export failed:\n{err_msg}")
+
+    def clear_telemetry_queue(self):
+        """Clears out the telemetry queue to prevent STO/NRT/MAUDE clashing."""
+        self.nrt_files.clear()
+        self.telemetry_df = None
+        self.maude_range = None
+        self.current_sto_filepath = None
+        self.list_nrt_files.clear()
+        print("[UI] Telemetry queue cleared.")
 
     def closeEvent(self, event):
         reply = QMessageBox.question(

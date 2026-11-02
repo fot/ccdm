@@ -236,7 +236,7 @@ class ErpSourceDialog(QDialog):
         self.accept()
 
 
-class NrtSourceDialog(QDialog):
+class DataSourceDialog(QDialog):
     """Small choice dialog to pick between local NRT files, MAUDE query, or Master STO file extraction."""
     def __init__(self, parent=None):
         super().__init__(parent)
