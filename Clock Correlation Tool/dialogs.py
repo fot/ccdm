@@ -330,7 +330,7 @@ class StoContactSelectionDialog(QDialog):
     def __init__(self, supports, history_file, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Support Contacts")
-        self.resize(800, 450)
+        self.resize(800, 900)
 
         self.supports = supports
         self.history_file = Path(history_file)

@@ -8,7 +8,7 @@ import pandas as pd
 
 from data_parsing import parse_erp_file, parse_nrt_file, parse_sto_file
 from clock_processing import calculate_clock_drift
-from misc import SFTP_CONFIG_PATH, get_incremented_clkhst_name, log_callback
+from misc import SFTP_CONFIG_PATH, get_incremented_clkhst_name
 from binary_convert import convert_dis_file, convert_dat_file
 from reports import (generate_trending_report, generate_correlation_report,
                      update_html_table, get_correlation_report_title)
@@ -190,7 +190,7 @@ class StoParserWorker(QThread):
         else:
             filter_end = end_base
 
-        # 3. Target exactly 15 days back from the latest 08:00 mark
+        # 3. Target 15 days back from the latest 08:00 mark
         target_start = filter_end - timedelta(days=16)  # 16 days to include the full 15-day window
 
         # 4. If total dataset is shorter than 15 days, fall back to earliest 08:00
