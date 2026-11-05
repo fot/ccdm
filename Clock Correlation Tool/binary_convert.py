@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 import struct
 import pandas as pd
-from scipy.optimize import fsolve
+from scipy.optimize import brentq
 
 # Local Imports
 from misc import log_callback, get_constants
@@ -11,10 +11,10 @@ from misc import log_callback, get_constants
 CONSTANTS = get_constants()
 JD_1985 = CONSTANTS['JD_1985']
 
-def format_for_binary_export(nrt_df):
+
+def format_for_binary_export(nrt_df: pd.DataFrame) -> pd.DataFrame:
     """
     Transforms the processed nrt_df into the exact OP19 fixed-width binary specification.
-    Includes a toggle ('cubic' or 'quadratic') to select which fit results are exported.
     """
     op19_records = []
 
@@ -35,12 +35,19 @@ def format_for_binary_export(nrt_df):
     adj_data_f = nrt_df['adjusted_ground_time'].iloc[-1]
     ref_gmt = c1
 
-    # --- GLOBAL ERROR GROWTH (SMART HEURISTICS APPLIED) ---
+    # --- GLOBAL ERROR GROWTH CALCULATION ---
+    # Target error thresholds: 0.1 ms (0.0001s), 1.0 ms (0.0010s), 10.0 ms (0.0100s)
     thresholds = [0.0001, 0.0010, 0.0100]
-    errtime_array = [0.0, 0.0, 0.0]
-    sigma_meas = np.sqrt(resid_var)
+
+    # Default to ref_gmt (pass epoch in seconds from 1985) if threshold is already exceeded
+    errtime_array = [float(ref_gmt), float(ref_gmt), float(ref_gmt)]
+
+    sigma_meas = np.sqrt(resid_var) if (not np.isnan(resid_var) and resid_var > 0) else 0.0
     n = len(nrt_df)
-    d = (nrt_df['vcdu'].iloc[-1] - nrt_df['vcdu'].iloc[0]) / 2.0
+
+    vcdu_start = nrt_df['vcdu'].iloc[0]
+    vcdu_end = nrt_df['vcdu'].iloc[-1]
+    d = (vcdu_end - vcdu_start) / 2.0
 
     if n > 0 and d > 0 and sigma_meas > 0:
         coeff_multiplier = sigma_meas / np.sqrt(n)
@@ -48,27 +55,30 @@ def format_for_binary_export(nrt_df):
         for i, target_error in enumerate(thresholds):
             def objective(t):
                 ratio = t / d
-                expected_var = (coeff_multiplier)**2 * (9.0/4.0 + 3.0*(ratio**2) + 45.0/4.0*(ratio**4) - 15.0/2.0*(ratio**2))
+                expected_var = (coeff_multiplier**2) * (2.25 + 3.0*(ratio**2) + 11.25*(ratio**4) - 7.5*(ratio**2))
                 return expected_var - (target_error**2)
 
+            # If uncertainty at reference epoch t=0 already meets/exceeds target,
+            # the threshold is reached immediately at ref_gmt.
             if objective(0.0) >= 0:
-                errtime_array[i] = 0.0
+                errtime_array[i] = float(ref_gmt)
                 continue
 
-            ratio_guess = ((target_error**2) / ((coeff_multiplier**2) * 11.25)) ** (1.0 / 4.0)
-            smart_guess = d * ratio_guess
-
             try:
-                t_counts = fsolve(objective, x0=[smart_guess])[0]
-                errtime_array[i] = float(f"{(ref_gmt + (t_counts + d) * c2):.4f}")
+                # Bounded Brent root finder over 0 to 10^8 counts (~300 days of VCDUs)
+                t_counts = brentq(objective, a=0.0, b=1e8)
+
+                # Convert count offset into absolute GMT seconds from 1985
+                errtime_sec = ref_gmt + (t_counts + d) * c2
+                errtime_array[i] = float(f"{errtime_sec:.4f}")
             except Exception:
-                errtime_array[i] = 0.0
+                errtime_array[i] = float(ref_gmt)
 
     # Record generation
     op19_records.append({
         "odb_clock_adj_data_l": float(adj_data_l),
         "odb_clock_adj_data_f": float(adj_data_f),
-        "odb_clock_ref_cnts": float(nrt_df['vcdu'].iloc[0]),
+        "odb_clock_ref_cnts": float(vcdu_start),
         "odb_clock_ref_gmt": float(ref_gmt),
         "odb_clock_std_dev": std_dev_array,
         "odb_clock_rate": float(c2),
@@ -84,6 +94,7 @@ def format_for_binary_export(nrt_df):
     })
 
     return pd.DataFrame(op19_records[::-1])
+
 
 def dis_file_to_dataframe(filepath):
     log_callback(f"Loading base database: {filepath.name}")
@@ -189,9 +200,6 @@ def dataframe_to_dis_file(df, init_length, inputdir, outputdir):
         orig_header_text = orig_header_data.decode('ascii', errors='ignore')
         orig_values = orig_header_text.split()
 
-    orig_record_count = int(orig_values[1])
-    orig_data_byte_size = int(orig_values[3])
-
     new_record_count = len(df)
     new_data_byte_size = HEADER_SIZE + (new_record_count * RECORD_SIZE)
 
@@ -291,9 +299,9 @@ def convert_dis_file(nrt_df, inputdir, outputdir):
 
     dis_file_data = dis_file_to_dataframe(Path(inputdir))
     append_data = format_for_binary_export(nrt_df)
-    
+
     combined_data = pd.concat([append_data, dis_file_data], ignore_index=True)
-    
+
     # Strictly sort chronologically so the index block matches the physical records
     combined_data = combined_data.sort_values(by='odb_clock_adj_data_l', ascending=False).reset_index(drop=True)
 

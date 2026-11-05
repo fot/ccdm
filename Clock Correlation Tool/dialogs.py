@@ -2,7 +2,7 @@ import json
 import traceback
 from pathlib import Path
 from PyQt6.QtGui import QColor, QBrush
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
                              QLabel, QFileDialog, QTextEdit, QMessageBox, QComboBox,
                              QDateTimeEdit, QFormLayout, QGroupBox, QLineEdit, QWidget,
                              QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
@@ -208,7 +208,7 @@ class ErpSourceDialog(QDialog):
         self.erp_interpolate = None
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("<b>Choose how to acquire the Ephemeris (.erp) file:</b>"))
+        layout.addWidget(QLabel("<b>Choose how to acquire the Ephemeris (.ERP) file:</b>"))
 
         # Interpolation Method Dropdown
         interp_layout = QHBoxLayout()
@@ -218,7 +218,7 @@ class ErpSourceDialog(QDialog):
         interp_layout.addWidget(interp_label)
         interp_layout.addWidget(self.combo_interp)
 
-        self.btn_local = QPushButton("Select Local .erp File")
+        self.btn_local = QPushButton("Select .ERP File")
         self.btn_local.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 8px;")
         self.btn_local.clicked.connect(lambda: self.set_selection('local'))
 
@@ -236,7 +236,7 @@ class ErpSourceDialog(QDialog):
         self.accept()
 
 
-class NrtSourceDialog(QDialog):
+class DataSourceDialog(QDialog):
     """Small choice dialog to pick between local NRT files, MAUDE query, or Master STO file extraction."""
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -247,15 +247,15 @@ class NrtSourceDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("<b>Choose how to add telemetry data:</b>"))
 
-        self.btn_local = QPushButton("Select Local .nrt File(s)")
+        self.btn_local = QPushButton("Select .NRT File(s)")
         self.btn_local.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 8px;")
         self.btn_local.clicked.connect(lambda: self.set_selection('local'))
 
-        self.btn_maude = QPushButton("MAUDE Database Query...")
+        self.btn_maude = QPushButton("MAUDE Database Query")
         self.btn_maude.setStyleSheet("background-color: #2c3e50; color: white; font-weight: bold; padding: 8px;")
         self.btn_maude.clicked.connect(lambda: self.set_selection('maude'))
 
-        self.btn_sto = QPushButton("Extract from Master .STO File...")
+        self.btn_sto = QPushButton("Extract from .STO File(s)")
         self.btn_sto.setStyleSheet("background-color: #16a085; color: white; font-weight: bold; padding: 8px;")
         self.btn_sto.clicked.connect(lambda: self.set_selection('sto'))
 
@@ -268,12 +268,69 @@ class NrtSourceDialog(QDialog):
         self.accept()
 
 
+class StoSourceDialog(QDialog):
+    """Dialog to select multiple .STO files via a single bulk file selection."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Master Telemetry (.STO)")
+        self.resize(500, 250)
+        self.selected_files = []
+
+        layout = QVBoxLayout(self)
+
+        # Header and Selection Button Row
+        top_layout = QHBoxLayout()
+        self.lbl_info = QLabel("<b>Selected Telemetry Files:</b>")
+        self.btn_browse = QPushButton("Browse File(s)...")
+        self.btn_browse.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold; padding: 5px 12px;")
+        self.btn_browse.clicked.connect(self.browse_files)
+
+        top_layout.addWidget(self.lbl_info)
+        top_layout.addStretch()
+        top_layout.addWidget(self.btn_browse)
+        layout.addLayout(top_layout)
+
+        # List Widget to display selected files
+        self.file_list_widget = QListWidget()
+        self.file_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        layout.addWidget(self.file_list_widget)
+
+        # Action Buttons
+        btn_layout = QHBoxLayout()
+        self.btn_confirm = QPushButton("Load STO Data")
+        self.btn_confirm.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 6px;")
+        self.btn_confirm.clicked.connect(self.on_confirm)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_cancel)
+        btn_layout.addWidget(self.btn_confirm)
+        layout.addLayout(btn_layout)
+
+    def browse_files(self):
+        default_dir = Path("//noodle/fot/engineering/ccdm/Clock_Timing/STOFiles")
+        files, _ = QFileDialog.getOpenFileNames(self, "Select Master Telemetry File(s)", str(default_dir),
+                                                "Telemetry Files (*.sto *.nrt *.csv *.txt);;All Files (*.*)")
+        if files:
+            self.selected_files = files
+            self.file_list_widget.clear()
+            for f in files:
+                self.file_list_widget.addItem(f)
+
+    def on_confirm(self):
+        if not self.selected_files:
+            QMessageBox.warning(self, "Input Required", "You must select at least one telemetry file.")
+            return
+        self.accept()
+
+
 class StoContactSelectionDialog(QDialog):
     """Interactive table dialog enforcing a 15-contact limit based on exact STO intersection."""
     def __init__(self, supports, history_file, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Support Contacts")
-        self.resize(800, 450)
+        self.resize(800, 900)
 
         self.supports = supports
         self.history_file = Path(history_file)

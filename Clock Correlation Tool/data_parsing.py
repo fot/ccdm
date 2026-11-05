@@ -136,29 +136,6 @@ def parse_sto_file(filepath, progress_callback=None):
         if progress_callback:
             progress_callback(100)
 
-    if len(data) > 0:
-        log_callback(f"Parsed {Path(filepath).name} with {len(data)} entries.")
-
-        # --- Create dataframe and truncate data to 08:00 to 08:00 time ranges ---
-        df = pd.DataFrame(data)
-
-        # 1. Extract the first and last datetime objects (fixing the .iloc bracket syntax)
-        first_dt = df['datetime'].iloc[0]
-        last_dt = df['datetime'].iloc[-1]
-
-        # 2. Force both bounds to exactly 08:00:00
-        filter_start = first_dt.replace(hour=8, minute=0, second=0, microsecond=0)
-        filter_end = last_dt.replace(hour=8, minute=0, second=0, microsecond=0)
-
-        # 3. Filter the dataframe to only keep rows within these bounds
-        df = df[(df['datetime'] >= filter_start) & (df['datetime'] <= filter_end)]
-
-        # Reset the index cleanly after dropping rows
-        df = df.reset_index(drop=True)
-
-        log_callback(f"Truncated STO data from {filter_start.strftime('%Y:%j:%H:%M')} to {filter_end.strftime('%Y:%j:%H:%M')}. {len(df)} entries remain.")
-        return df
-
     return pd.DataFrame(data) # default return /w no filtering
 
 

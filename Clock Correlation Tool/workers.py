@@ -3,7 +3,7 @@ import traceback
 import shutil
 from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 from data_parsing import parse_erp_file, parse_nrt_file, parse_sto_file
@@ -158,38 +158,121 @@ class PipelineWorker(QThread):
 
 
 class StoParserWorker(QThread):
-    """Background worker to parse massive STO files without freezing the main GUI."""
     progress = pyqtSignal(int)
-    finished = pyqtSignal(object)  # Emits the parsed DataFrame
+    status = pyqtSignal(str)
+    finished = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, filepath):
-        super().__init__()
-        self.filepath = filepath
-        self._is_cancelled = False
+    def __init__(self, file_paths, parent=None):
+        super().__init__(parent)
+        if isinstance(file_paths, (str, Path)):
+            self.file_paths = [file_paths]
+        else:
+            self.file_paths = list(file_paths)
+        self._is_canceled = False
 
     def cancel(self):
-        """Flag the loop to abort on the next iteration."""
-        self._is_cancelled = True
+        self._is_canceled = True
+
+    def filter_dataframe(self, df):
+        """Truncate data to at most the most current 15-day window, bounded from 08:00 to 08:00."""
+        if df.empty or 'datetime' not in df.columns:
+            return df
+
+        # 1. Get temporal extent of combined dataset
+        min_dt = df['datetime'].min()
+        max_dt = df['datetime'].max()
+
+        # 2. Determine the most recent complete 08:00 end boundary
+        end_base = max_dt.replace(hour=8, minute=0, second=0, microsecond=0)
+        if max_dt < end_base:
+            filter_end = end_base - timedelta(days=1)
+        else:
+            filter_end = end_base
+
+        # 3. Target 15 days back from the latest 08:00 mark
+        target_start = filter_end - timedelta(days=16)  # 16 days to include the full 15-day window
+
+        # 4. If total dataset is shorter than 15 days, fall back to earliest 08:00
+        earliest_base = min_dt.replace(hour=8, minute=0, second=0, microsecond=0)
+        if min_dt > earliest_base:
+            earliest_08 = earliest_base + timedelta(days=1)
+        else:
+            earliest_08 = earliest_base
+
+        filter_start = max(target_start, earliest_08)
+
+        # 5. Guard check: verify non-zero window
+        if filter_start >= filter_end:
+            msg = f"[WARNING] No valid 08:00-to-08:00 window available between {min_dt} and {max_dt}."
+            self.status.emit(msg)
+            print(msg)
+            return pd.DataFrame(columns=df.columns)
+
+        # 6. Apply filter
+        df_filtered = df[(df['datetime'] >= filter_start) & (df['datetime'] <= filter_end)].copy()
+        df_filtered = df_filtered.reset_index(drop=True)
+
+        days_spanned = (filter_end - filter_start).days
+        msg = (f"Truncated STO data to the most current {days_spanned}-day window "
+               f"({filter_start.strftime('%Y:%j:%H:%M')} to {filter_end.strftime('%Y:%j:%H:%M')}). "
+               f"{len(df_filtered)} entries remain.")
+        self.status.emit(msg)
+        print(f"[UI] {msg}")
+
+        return df_filtered
 
     def run(self):
         try:
-            # Pass our local update method as the callback to the parser
-            df = parse_sto_file(self.filepath, progress_callback=self.update_progress)
+            parsed_dfs = []
+            num_files = len(self.file_paths)
 
-            # Only emit finished if it completed naturally
-            if not self._is_cancelled:
-                self.finished.emit(df)
+            for idx, fpath in enumerate(self.file_paths):
+                if self._is_canceled:
+                    self.error.emit("STO parsing canceled by user.")
+                    return
+
+                fname = Path(fpath).name
+                self.status.emit(f"Loading file {idx + 1} of {num_files}: {fname}")
+
+                start_pct = int((idx / num_files) * 100)
+                self.progress.emit(start_pct)
+
+                def file_progress_cb(file_pct):
+                    overall_pct = int(((idx + (file_pct / 100.0)) / num_files) * 100)
+                    self.progress.emit(overall_pct)
+
+                try:
+                    df = parse_sto_file(fpath, progress_callback=file_progress_cb)
+                except TypeError:
+                    df = parse_sto_file(fpath)
+
+                if df is not None and not df.empty:
+                    parsed_dfs.append(df)
+
+                end_pct = int(((idx + 1) / num_files) * 100)
+                self.progress.emit(end_pct)
+
+            if not parsed_dfs:
+                self.finished.emit(pd.DataFrame())
+                return
+
+            # Merge all parsed dataframes
+            combined_df = pd.concat(parsed_dfs, ignore_index=True)
+
+            if 'vcdu' in combined_df.columns:
+                combined_df = combined_df.sort_values(by='vcdu')
+                combined_df = combined_df.drop_duplicates(subset=['vcdu'])
+                combined_df = combined_df.reset_index(drop=True)
+
+            # Filter to clean 08:00 to 08:00 time ranges
+            if len(combined_df) > 0:
+                combined_df = self.filter_dataframe(combined_df)
+
+            self.finished.emit(combined_df)
 
         except Exception as e:
-            self.error.emit(f"{str(e)}\n{traceback.format_exc()}")
-
-    def update_progress(self, val):
-        """Emits the progress back to the main thread. Returns False to abort if cancelled."""
-        if self._is_cancelled:
-            return False
-        self.progress.emit(val)
-        return True
+            self.error.emit(f"{e}\n{traceback.format_exc()}")
 
 
 class BatchOutputsWorker(QThread):
@@ -265,6 +348,55 @@ class BatchOutputsWorker(QThread):
             self.log.emit("[Batch] Master HTML Table updated.\n")
 
             self.finished.emit(results)
+
+        except Exception as e:
+            self.error.emit(f"{e}\n{traceback.format_exc()}")
+
+
+class ExportCSVWorker(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, df, file_path, parent=None):
+        super().__init__(parent)
+        self.df = df
+        self.file_path = file_path
+        self._is_canceled = False
+
+    def cancel(self):
+        self._is_canceled = True
+
+    def run(self):
+        try:
+            total_rows = len(self.df)
+            if total_rows == 0:
+                self.df.to_csv(self.file_path, index=False)
+                self.progress.emit(100)
+                self.finished.emit(self.file_path)
+                return
+
+            # Divide dataframe into ~100 chunks for smooth progress updates
+            chunk_size = max(1, total_rows // 100)
+
+            for i in range(0, total_rows, chunk_size):
+                if self._is_canceled:
+                    self.error.emit("Export canceled by user.")
+                    return
+
+                chunk = self.df.iloc[i : i + chunk_size]
+
+                # Write header only on the first chunk; append the rest
+                mode = 'w' if i == 0 else 'a'
+                header = True if i == 0 else False
+
+                chunk.to_csv(self.file_path, mode=mode, header=header, index=False)
+
+                # Calculate and emit completion percentage
+                pct = int(((i + len(chunk)) / total_rows) * 100)
+                self.progress.emit(pct)
+
+            self.finished.emit(self.file_path)
 
         except Exception as e:
             self.error.emit(f"{e}\n{traceback.format_exc()}")
