@@ -1,236 +1,275 @@
-"Tool to display SSR Pointers"
-from datetime import datetime, timedelta, timezone
-import traceback
+"""
+Tool to display SSR Pointers.
+Handles MAUDE data requests, data parsing, and native Matplotlib polar plot generation.
+"""
+
 import json
 import urllib.request
+import traceback
 import warnings
+from datetime import datetime, timedelta, timezone
+
 import numpy as np
-import plotly.graph_objects as go
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+
 warnings.filterwarnings("ignore")
 
 
-def data_request(self, msid, skip= False):
-    """
-    Description: Data request for a general timeframe and MSID, returns json or data dict
-    Input: User Variables, MSID
-    Output: Data dict or JSON
-    """
-    if not skip:
-        print(f"    - Requesting data for MSID: {msid}...")
-    url= (f"https://occweb.cfa.harvard.edu/maude/mrest/{self.selectedchannel.upper()}"
-          f"/msid.json?m={msid}&ts={self.start_date.strftime('%Y%j.%H%M%S')}"
-          f"&tp={self.end_date.strftime('%Y%j.%H%M%S')}")
-    with urllib.request.urlopen(url) as response:
+def data_request(self, msids: list) -> pd.DataFrame:
+    """Synchronous fetching with urllib, vectorized Pandas processing."""
+    def maude_data_request(ts, tp, msid):
+        url = ("http://telemetry.cfa.harvard.edu/maude/mrest/"
+               f"{self.selectedchannel.upper()}/msid.json?m={msid}"
+               f"&ts={ts.strftime('%Y%j%H%M%S')}"
+               f"&tp={tp.strftime('%Y%j%H%M%S')}&ap=t")
+        response = urllib.request.urlopen(url)
         return json.loads(response.read())
+
+    all_dfs = []
+    ts = self.start_date
+    tp = self.end_date
+
+    for msid in msids:
+        raw_times_accum = []
+        raw_values_accum = []
+        shift_time = timedelta(0)
+
+        while True:
+            raw_data = maude_data_request(ts + shift_time, tp, msid)
+            chunk_times = raw_data.get('data-fmt-1', {}).get('times', [])
+            chunk_values = raw_data.get('data-fmt-1', {}).get('values', [])
+
+            if not chunk_times:
+                break
+
+            raw_times_accum.extend(chunk_times)
+            raw_values_accum.extend(chunk_values)
+
+            last_time_str = str(chunk_times[-1])
+            last_time_dt = datetime.strptime(last_time_str, "%Y%j%H%M%S%f").replace(tzinfo=timezone.utc)
+            new_shift_time = last_time_dt - ts
+
+            if last_time_dt >= tp or new_shift_time <= shift_time:
+                break
+            shift_time = new_shift_time
+
+        if not raw_times_accum:
+            empty_df = pd.DataFrame(columns=['times', 'values'])
+            empty_df['msid'] = msid
+            all_dfs.append(empty_df)
+            continue
+
+        df = pd.DataFrame({'times': raw_times_accum, 'values': raw_values_accum})
+        df.drop_duplicates(subset=['times'], inplace=True)
+        df['times'] = pd.to_datetime(df['times'].astype(str), format='%Y%j%H%M%S%f')
+        df['values'] = pd.to_numeric(df['values'])
+
+        df.sort_values(by='times', inplace=True)
+        df.reset_index(drop=True, inplace=True)
+        df['msid'] = msid
+        all_dfs.append(df)
+
+    if not all_dfs:
+        return pd.DataFrame(columns=['times', 'values', 'msid'])
+
+    return pd.concat(all_dfs, ignore_index=True)
 
 
 def get_pointers(self):
-    """
-    Retrieves the playback and record pointers for a specified SSR (Solid State Recorder)
-    within a given date range.
-    Args:
-        start_date (str): The start date for the data query.
-        end_date (str): The end date for the data query.
-        ssr (str): The identifier for the SSR.
-    Returns:
-        tuple: A tuple containing:
-            - pb_pointers (list of int): List of playback pointer values (current and previous).
-            - rc_pointer (int): The current record pointer value.
-    Raises:
-        KeyError: If expected keys are missing in the data response.
-        IndexError: If pointer values are not found in the response.
-        ValueError: If pointer values cannot be converted to integers.
-    Note:
-        Assumes the existence of a `data_request` function that fetches pointer data in a
-        specific format. Get the record pointers for the selected SSR."""
+    """Retrieves the playback and record pointers using vectorized Pandas operations."""
     print("  - Getting Playback/Record Pointers...")
-    pb_pointers= []
+    pb_pointers = []
+    ssr_max_val = 134217728
 
-    # Find Current and Previous Playback Pointers
-    pb_data= data_request(self, f"COS{self.selectedssr.upper()}PBPT")
-    pb_data['data-fmt-1']['values'].reverse()
-    pb_pointers.append(int(pb_data['data-fmt-1']['values'][0]))
+    pb_df = data_request(self, [f"COS{self.selectedssr.upper()}PBPT"])
 
-    for i, (val) in enumerate(pb_data['data-fmt-1']['values']):
-        try:
-            next_val= pb_data['data-fmt-1']['values'][i+1]
-            if next_val != val:
-                pb_pointers.append(int(next_val))
-                break
-        except IndexError:
-            pb_pointers.append(None)
+    if pb_df.empty:
+        raise ValueError(f"No Playback Pointer data returned for SSR-{self.selectedssr}.")
 
-    # Record the current Record Pointer Value
-    rc_data= data_request(self, f"COS{self.selectedssr.upper()}RCPT")
-    rc_pointer= int(rc_data['data-fmt-1']['values'][-1])
+    pb_series = pb_df['values'].astype(int)[::-1].reset_index(drop=True)
+    current_pb = pb_series.iloc[0]
+    pb_pointers.append(current_pb)
 
-    self.pb_pointers= pb_pointers
-    self.rc_pointer= rc_pointer
+    changed_pb = pb_series[pb_series != current_pb]
+
+    if not changed_pb.empty:
+        pb_pointers.append(changed_pb.iloc[0])
+    else:
+        pb_pointers.append(None)
+
+    rc_df = data_request(self, [f"COS{self.selectedssr.upper()}RCPT"])
+
+    if rc_df.empty:
+        raise ValueError(f"No Record Pointer data returned for SSR-{self.selectedssr}.")
+
+    rc_series = rc_df['values'].astype(int)
+    rc_pointer = rc_series.iloc[-1]
+    rc_timestamp = rc_df['times'].iloc[-1].replace(tzinfo=timezone.utc)
+    old_rc_timestamp = rc_df['times'].iloc[0].replace(tzinfo=timezone.utc)
+
+    delta_hours = (rc_timestamp - old_rc_timestamp).total_seconds() / 3600.0
+    total_pointers_moved = rc_series.diff().dropna().mod(ssr_max_val).sum()
+
+    if delta_hours > 0 and total_pointers_moved > 0:
+        self.rc_rate = total_pointers_moved / delta_hours
+    else:
+        self.rc_rate = ssr_max_val / 18.6
+
+    self.pb_pointers =  pb_pointers
+    self.rc_pointer =   rc_pointer
+    self.rc_timestamp = rc_timestamp
 
 
 def generate_polar_plot(self):
-    """
-    Generates a custom polar plot visualizing record and playback pointers on a circular scale.
-    The plot displays:
-        - SSR pointer segments with value labels.
-        - Record pointer as a blue line.
-        - Current playback pointer as a solid red line.
-        - Previous playback pointer as a dashed red line.
-        - Highlighted area between record and current playback pointers.
-        - Timestamp annotation.
-    Args:
-        ssr (int): Identifier for the SSR (Solid State Recorder).
-        pb_pointers (list[int]): List of playback pointer values. The first element is the
-                                 current pointer, the last is the previous pointer.
-        rc_pointer (int): Record pointer value.
-    Returns:
-        plotly.graph_objs.Figure: A Plotly figure object representing the polar plot.
-         - Generates a custom polar plot visualizing record and
-           playback pointers on a circular scale.
-    """
-    def build_and_add_labels(plot):
-        "Define labels, based off SSR min/max"
-        labels, label_sum= [], ssr_min
-        for i in range(0, 8):
-            labels.append(f"{int(label_sum):,}")
-            label_sum += ((ssr_max-ssr_min) / 8)
-        labels[0]= f"{int(label_sum):,}<br>{labels[0]}"
+    """Generates a custom polar plot using Matplotlib styled to match Plotly."""
+    ssr_min, ssr_max = 0, 134217728
 
-        for i, label in enumerate(labels):
-            plot.add_trace(go.Scatterpolar(
-                r= [1.2], theta= [angles_deg[i]],
-                mode= "text", text= [label],
-                textfont= {"size":18, "color":"black"},
-                hoverinfo= "skip", showlegend= False))
-            plot.add_trace(go.Scatterpolar(
-                r= [0, 1.3], theta= [angles_deg[i], angles_deg[i]],
-                mode= "lines", line= {"color":"rgba(0,0,0,0.1)", "width":3, "dash":"dash"},
-                hoverinfo= "skip", showlegend= False))
+    fig = Figure(figsize=(9, 8), dpi=100, facecolor='white')
+    ax = fig.add_subplot(111, polar=True)
 
-    def add_record_pointer(plot):
-        "Add the record pointer"
-        rc_angle= (self.rc_pointer / (ssr_max-ssr_min)) * 360
-        plot.add_trace(go.Scatterpolar(
-            r= [0, 1.2], theta= [rc_angle, rc_angle],
-            name= f"Record Pointer: {self.rc_pointer:,}",
-            mode= "lines", line= {"color": "blue", "width": 4},
-            hoverinfo= "skip", showlegend= True))
+    ax.set_theta_direction(-1)
+    ax.set_theta_offset(np.pi / 2)
 
-    def add_current_playback_pointer(plot):
-        "Add the current playback pointer"
-        pb_angle= (self.pb_pointers[0] / (ssr_max-ssr_min)) * 360
-        plot.add_trace(go.Scatterpolar(
-            r= [0, 1.2], theta= [pb_angle, pb_angle],
-            name= f"Current Playback Pointer: {self.pb_pointers[0]:,}",
-            mode= "lines", line= {"color": "red", "width": 4},
-            hoverinfo= "skip", showlegend= True))
+    ax.set_facecolor('#E5ECF6')
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.spines['polar'].set_visible(False)
+    ax.set_ylim(0, 1.2)
 
-    def add_previous_playback_pointer(plot):
-        "Add the previous playback pointer"
-        if self.pb_pointers[-1] is not None:
-            prev_pb_angle= (self.pb_pointers[-1] / (ssr_max-ssr_min)) * 360
-            plot.add_trace(go.Scatterpolar(
-                r= [0, 1.2], theta= [prev_pb_angle, prev_pb_angle],
-                name= f"Previous Playback Pointer: {self.pb_pointers[-1]:,}",
-                mode= "lines", line= {"color":"red", "width":4, "dash":"dash"},
-                hoverinfo= "skip", showlegend= True))
+    # --- Data Traces ---
+    rc_angle = (self.rc_pointer / (ssr_max - ssr_min)) * 2 * np.pi
+    ax.plot([rc_angle, rc_angle], [0, 1.2], color='blue', linewidth=3,
+            label=f"Record Pointer: {self.rc_pointer:,}")
 
-    def add_highlighted_region(plot):
-        "Add the highlighted region between record/playback (current) pointer values"
-        if not self.pb_pointers[0] == self.rc_pointer:
+    pb_angle = (self.pb_pointers[0] / (ssr_max - ssr_min)) * 2 * np.pi
+    ax.plot([pb_angle, pb_angle], [0, 1.2], color='red', linewidth=3,
+            label=f"Current Playback: {self.pb_pointers[0]:,}")
 
-            theta0= (self.pb_pointers[0] / (ssr_max-ssr_min)) * 360 % 360
-            theta1= (self.rc_pointer / (ssr_max-ssr_min)) * 360 % 360
+    if self.pb_pointers[-1] is not None:
+        prev_pb_angle = (self.pb_pointers[-1] / (ssr_max - ssr_min)) * 2 * np.pi
+        ax.plot([prev_pb_angle, prev_pb_angle], [0, 1.2], color='red', linewidth=3,
+                linestyle='--', label=f"Previous Playback: {self.pb_pointers[-1]:,}")
 
-            if theta1 <= theta0:
-                theta1 += 360
+    # --- Shaded region between Playback and Record Pointer ---
+    if self.pb_pointers[0] != self.rc_pointer:
+        theta0 = pb_angle % (2 * np.pi) # Red Line
+        theta1 = rc_angle % (2 * np.pi) # Blue Line
+        if theta1 <= theta0:
+            theta1 += 2 * np.pi
+        theta_fill = np.linspace(theta0, theta1, 200)
+        ax.fill_between(theta_fill, 0, 1.2, color='red', alpha=0.2)
 
-            theta_fill= np.linspace(theta0, theta1, 200)
-            r_fill= np.ones_like(theta_fill) * 1.2
-            plot.add_trace(go.Scatterpolar(
-                r= np.concatenate([[0], r_fill, [0]]),
-                theta= np.concatenate([[theta_fill[0]], theta_fill, [theta_fill[-1]]]),
-                mode= "lines", fill= "toself", fillcolor= "rgba(255,0,0,0.2)",
-                line= {"color": "rgba(255,0,0,0)"},
-                hoverinfo= "skip", showlegend= False))
+    # --- Draw curved arrow from Playback to Record Pointer ---
+    if self.pb_pointers[0] != self.rc_pointer:
+        r_arrow = 0.5  # Mid-radius height for the arrow arc
 
-    def add_datetime_annotations(plot):
-        "Add query datetime annotation"
-        plot.add_annotation(
-            text= f"{datetime.now(timezone.utc).strftime('%m/%d/%Y %H:%M:%S')} UTC",
-            xref= "paper", yref= "paper",
-            x= 1.00, y= -0.10, showarrow= False,
-            font= {"size":12, "color":"black"}, align= "right",
-            borderpad= 4, bgcolor= "rgba(0,0,0,0)")
+        theta0 = rc_angle % (2 * np.pi)  # Blue line
+        theta1 = pb_angle % (2 * np.pi)    # Red line
 
-    def add_playback_active_annotation(plot):
-        "Add annotation if an SSR playback is currently occuring"
-        print(f"  - Checking if SSR-{self.selectedssr} has an active playback...")
-        playback_active= data_request(self, f"COS{self.selectedssr}PBEN")
+        # Ensure theta increases to move clockwise
+        if theta1 <= theta0:
+            theta1 += 2 * np.pi
 
-        if playback_active['data-fmt-1']['values'][-1] == "1":
-            plot.add_annotation(
-                text= "PLAYBACK ACTIVE", xref= "paper", yref= "paper",
-                x= 1.00, y= 1.00, showarrow= False,
-                font= {"size":14, "color":"black"}, align= "right",
-                borderpad= 4, bordercolor= "black", bgcolor= "red")
+        theta_arrow = np.linspace(theta0, theta1, 100)
 
-    def format_plot(plot):
-        "Finalize plot formatting"
-        plot.update_layout(
-            polar= {"angularaxis": {"rotation":90, "direction":"clockwise", "visible":False},
-                    "radialaxis": {"visible":False, "range":[0, 1.3]}},
-            showlegend= True, margin= dict(l=100, r=100, t=50, b=100),
-            width= 750, height= 750, font= {"size":14, "color":"black"},
-            paper_bgcolor= "white",
-            legend= {"yanchor":"bottom", "y":-0.15, "xanchor":"left", "x":0.00,
-                    "borderwidth":2, "bordercolor":"black"}
-            )
+        # Draw the curved arc
+        ax.plot(theta_arrow, np.full_like(theta_arrow, r_arrow), color='black', alpha=0.33, linewidth=1)
 
-    ssr_max, ssr_min= 134217728, 0
-    angles_deg= np.linspace(0, 360, 8, endpoint=False)
-    plot= go.Figure()
+        # Draw arrowhead at the endpoint pointing clockwise along the tangent
+        ax.annotate(
+            '', xy=(theta1, r_arrow),
+            xytext=(theta_arrow[-5], r_arrow),
+            arrowprops=dict(arrowstyle="-|>", color='black', alpha=0.33, linewidth=1, mutation_scale=18))
 
-    # Assemble the figure
-    build_and_add_labels(plot)
-    add_record_pointer(plot)
-    add_current_playback_pointer(plot)
-    add_previous_playback_pointer(plot)
-    add_highlighted_region(plot)
-    add_datetime_annotations(plot)
-    add_playback_active_annotation(plot)
-    format_plot(plot)
-    print(f"  - Plot generated for SSR-{self.selectedssr}...\n")
+    # --- Labels and Grid Lines ---
+    angles_rad = np.linspace(0, 2 * np.pi, 8, endpoint=False)
+    current_mode = getattr(self, 'display_mode', 'pointers')
 
-    self.plot= plot
+    for i, angle in enumerate(angles_rad):
+        # Draw Plotly-style dashed grid lines
+        ax.plot([angle, angle], [0, 1.2], color='black', alpha=0.1, linewidth=2, linestyle='--')
+
+        # Plot Labels
+        if current_mode == "time":
+            tick_pointer = i * ((ssr_max - ssr_min) / 8)
+            pointers_to_go = (tick_pointer - self.rc_pointer) % ssr_max
+            hours_to_go = pointers_to_go / self.rc_rate
+            future_time = self.rc_timestamp + timedelta(hours=hours_to_go)
+            label_text = future_time.strftime('%Y:%j\n%H:%M:%S')
+        else:
+            val = int(ssr_min + i * ((ssr_max - ssr_min) / 8))
+            label_text = f"{val:,}"
+            if i == 0: label_text = f"{label_text}\n({ssr_max:,})"
+
+        ax.text(angle, 1.28, label_text, ha='center', va='center', fontsize=14, color='black')
+
+    # --- Rollover Annotation ---
+    distance_counts = (self.pb_pointers[0] - self.rc_pointer) % ssr_max
+    counts_needed = (distance_counts - 200) % ssr_max # within 200 counts of pointers meeting
+
+    if hasattr(self, 'rc_rate') and self.rc_rate > 0:
+        hours_to_rollover = counts_needed / self.rc_rate
+        rollover_dt = self.rc_timestamp + timedelta(hours=hours_to_rollover)
+        rollover_str = rollover_dt.strftime('%m/%d/%Y (%Y:%j) %H:%M:%S UTC')
+    else:
+        rollover_str = "N/A"
+
+    fig.text(0.02, 0.98, f"Next Rollover\n{rollover_str}", color="black", fontsize=12,
+             ha="left", va="top", bbox=dict(facecolor='white', edgecolor='black', boxstyle='square,pad=0.3'))
+
+    # --- Playback Active Status Alert ---
+    playback_active = data_request(self, [f"COS{self.selectedssr}PBEN"])
+    print(f"  - Checking if SSR-{self.selectedssr} has an active playback...")
+    if not playback_active.empty and str(playback_active['values'].iloc[-1]) == "1":
+        fig.text(0.98, 0.98, "PLAYBACK ACTIVE", color="black", fontsize=14,
+                 ha="right", va="top", bbox=dict(facecolor='red',
+                                                 edgecolor='black', boxstyle='square,pad=0.3'))
+
+    # --- UI Layout Formatting ---
+    fig.subplots_adjust(left=0.05, right=0.95, top=0.90, bottom=0.15)
+
+    # Legend: Docked securely at the bottom left
+    fig.legend(loc='lower left', bbox_to_anchor=(0.02, 0.02), 
+               frameon=True, facecolor='white', framealpha=1.0, edgecolor='black', fontsize=12)
+
+    # --- Generation Timestamp ---
+    current_time_str = datetime.now(timezone.utc).strftime('%m/%d/%Y (%Y:%j) %H:%M:%S UTC')
+    fig.text(0.98, 0.02, current_time_str, ha='right', va='bottom', fontsize=12, color='black')
+
+    # Render
+    canvas = FigureCanvasAgg(fig)
+    canvas.draw()
+    self.plot_rgba = np.asarray(canvas.buffer_rgba())
+    print(f"  - Plot generated for SSR-{self.selectedssr}...")
 
 
 def generate_image(self):
-    """
-    Executes the main logic to generate a polar plot image for the selected
-    SSR (Solid State Relay) if it is ON.
-    - Determines the time window for data retrieval (from 1 day ago to 10 seconds ago).
-    - Checks the power status of the selected SSR using `data_request`.
-    - If the SSR is ON, retrieves pointer data and generates a polar plot.
-    - Handles errors if SSR power data is unavailable.
-    Returns:
-        plot: The generated polar plot if SSR is ON, otherwise None.
-    """
-    self.start_date= datetime.now(timezone.utc) - timedelta(hours= 18.5)
-    self.end_date=   datetime.now(timezone.utc) - timedelta(seconds=5)
-    print(f"Checking if SSR-{self.selectedssr} is ON...")
-    ssr_power= data_request(self, f"COSSR{self.selectedssr}X")
+    """Executes the main orchestration logic."""
+    self.start_date = datetime.now(timezone.utc) - timedelta(hours=self.selectedquery)
+    self.end_date = datetime.now(timezone.utc) - timedelta(seconds=5)
 
-    # Only generate plot if SSR is ON
+    print(f"Checking if SSR-{self.selectedssr} is ON...")
+    ssr_power = data_request(self, [f"COSSR{self.selectedssr}X"])
+
     try:
-        if int(ssr_power['data-fmt-1']['values'][-1]) == 1:
+        if ssr_power.empty:
+            print(f"  - (Error): No power data retrieved.")
+            self.plot_rgba = None
+            return
+
+        if int(ssr_power['values'].iloc[-1]) == 1:
             print(f"  - SSR-{self.selectedssr} is ON...")
             get_pointers(self)
             generate_polar_plot(self)
         else:
-            self.plot= None
-
-    except IndexError as error:
-        print(f""" - (Error) "{error}": Unable to retrieve SSR-{self.selectedssr} power data.""")
+            self.plot_rgba = None
+    except Exception as error:
+        print(f"  - (Error) \"{error}\": Failed to generate plot.")
         traceback.print_exc()
-        self.plot= None
+        self.plot_rgba = None
+
+    if hasattr(self, 'continuous_checkbox') and self.continuous_checkbox.isChecked():
+        print("  - Continuous mode ENABLED.")

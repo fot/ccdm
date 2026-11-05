@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import plotly.graph_objects as go
+from components.misc import write_json_file
 
 
 def format_plot(plot, user_vars):
@@ -109,4 +110,5 @@ def build_sbe_mod104_avg_plot(user_vars):
 
     add_plot_trace(plot, sbe_avg_x, sbe_avg_y, "Average SBE for SSR-A Submodule 104")
     format_plot(plot, user_vars)
-    plot.write_html(f"{base_dir}/Output/Avg_SBE_Submod104.html")
+    # plot.write_html(f"{base_dir}/Output/Avg_SBE_Submod104.html")
+    write_json_file(user_vars, plot, "Avg_SBE_Submod104.json")

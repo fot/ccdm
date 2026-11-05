@@ -6,6 +6,7 @@ import requests
 import pandas as pd
 from plotly import subplots
 import plotly.graph_objects as go
+from components.misc import write_json_file
 
 
 def add_solar_spots_data(user_vars):
@@ -174,4 +175,5 @@ def build_sbe_vs_dbe_solar_date_plot(user_vars):
     add_plot_trace(plot, dbe_x, dbe_y, "DBE by Date")
     add_plot_trace(plot, dates, sunspots, "Sunspots", 0.2, True)
     format_plot(plot, user_vars)
-    plot.write_html(f"{base_dir}/Output/SBE_vs_DBE_by_Date.html")
+    # plot.write_html(f"{base_dir}/Output/SBE_vs_DBE_by_Date.html")
+    write_json_file(user_vars, plot, "SBE_vs_DBE_by_Date.json")

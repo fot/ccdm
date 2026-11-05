@@ -17,7 +17,7 @@ from Chandra.Time import DateTime
 from tqdm import tqdm
 from datetime import datetime, timezone, timedelta
 from cxotime import CxoTime
-from components.misc import write_html_file, write_csv_file, write_png_file, parse_csv_file
+from components.misc import write_json_file, write_csv_file, parse_csv_file
 from components.pa_bpt_plots import generate_pa_bpt_plots
 from components.average_sbe_submod104_plot import build_sbe_mod104_avg_plot
 from components.sbe_vs_dbe_solar_per_date_plot import build_sbe_vs_dbe_solar_date_plot
@@ -397,8 +397,7 @@ def make_ssr_by_submod(ssr, user_vars, data_dict, fname):
     )
     fig.update_layout(barmode="group", xaxis_tickangle=-90)
     fig.update_yaxes(range=[0, max(y[0:128])+1])
-    file_name = user_vars.set_dir + "/Output/" + fname + ".html"
-    fig.write_html(file_name, include_plotlyjs = "directory", auto_open=False)
+    write_json_file(user_vars, fig, f"{fname}.json")
 
 
 def make_ssr_by_doy(ssr,user_vars, data_dict, fname):
@@ -429,8 +428,7 @@ def make_ssr_by_doy(ssr,user_vars, data_dict, fname):
         }
     )
     fig.update_yaxes(range=[0, max(y)+1])
-    file_name = user_vars.set_dir + "/Output/" + fname + ".html"
-    fig.write_html(file_name, include_plotlyjs = "directory", auto_open=False)
+    write_json_file(user_vars, fig, f"{fname}.json")
 
 
 def make_ssr_full(ssr, user_vars, data, fname):
@@ -481,8 +479,7 @@ def make_ssr_full(ssr, user_vars, data, fname):
             "color": "RebeccaPurple"
         }
     )
-    file_name = user_vars.set_dir + "/Output/" + fname + ".html"
-    fig.write_html(file_name, include_plotlyjs = "directory", auto_open=False)
+    write_json_file(user_vars, fig, f"{fname}.json")
 
 
 def TimeAdjust(msid,ts,tp):
@@ -802,8 +799,8 @@ def generate_appendix_figure(user_vars,df_means,df_mins,df_maxes,mission=False):
             yaxis= dict(range= ranges[cur_msid]),
             margin= dict(b= 150),
             )
-
-        write_png_file(user_vars,figure,f"{cur_msid}.png" if mission else f"period_{cur_msid}.png")
+        figure.update_xaxes(tickformat="%Y:%j", type="date")
+        write_json_file(user_vars, figure, f"{cur_msid}.json" if mission else f"period_{cur_msid}.json")
 
 
 def generate_mission_appendix_plots(user_vars):

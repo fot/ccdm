@@ -1,232 +1,296 @@
-"Module to create a GUI for SSR Pointer Visualization"
+"""
+Module to create a GUI for SSR Pointer Visualization.
+Handles user inputs, auto updating, and dynamic image rendering.
+"""
 
 import sys
-# import tkinter as tk
-from PyQt6 import QtWidgets, QtGui, QtCore
 from generate_image import generate_image
+from PyQt5 import QtWidgets, QtGui, QtCore
 
 
 class QTextEditLogger(QtCore.QObject):
-    """A logger that writes to a QTextEdit widget."""
+    """
+    A logger that redirects standard output (stdout/stderr) to a QTextEdit widget.
+    """
     def __init__(self, text_edit):
         super().__init__()
-        self.text_edit= text_edit
+        self.text_edit = text_edit
 
     def write(self, msg):
-        """Write a message to the QTextEdit widget."""
+        """Write a message to the QTextEdit widget and force a GUI update."""
         if msg.strip():
             self.text_edit.append(msg)
-            self.text_edit.moveCursor(QtGui.QTextCursor.MoveOperation.End)
+            self.text_edit.moveCursor(QtGui.QTextCursor.End)
+            QtWidgets.QApplication.processEvents()
+
+    def flush(self):
+        """Dummy flush method required by some libraries when replacing sys.stdout"""
+        pass
 
 
 class SSRPointerWindow(QtWidgets.QWidget):
     """
     This class implements a user-interface for a set of tools that generate
-    a plot to visuallize SSR pointers.
+    a plot to visualize SSR pointers.
 
     Usage:
-        To Do
+        Instantiate this class and show() it within a QApplication loop.
     """
-    def __init__ (self, parent=None):
+    def __init__(self, parent=None):
         """
-        Initializes the SSR Pointer Tool window and its widgets.
-        Widgets and layout:
-            - Run SSR Pointer Tool button (row 0, columns 0-3): Starts the
-              SSR pointer visualization.
-            - Image output area (row 1, columns 0-3): Displays generated SSR pointer plots.
-            - SSR Selection Combo Box (row 2, columns 0-3): Allows selection between
-              SSR-A and SSR-B pointer sets.
-            - Console output area (row 2, columns 0-3): Shows log and console messages.
-            - Quit button (row 3, column 3): Closes the interface.
-            - Additional read-only text display for formatted output.
-        Note:
-            The widgets are arranged using a QGridLayout, with most controls spanning all
-            columns for a wide interface.
+        Initializes the SSR Pointer Tool window, layouts, and all internal widgets.
         """
-        QtWidgets.QWidget.__init__(self,parent)
-        self.redBackground=   "QPushButton { background: red }"
-        self.greenBackground= "QPushButton { background: lightgreen }"
-        self.setWindowTitle ("SSR Visualizer")
+        super().__init__(parent)
 
+        # --- Window Setup ---
+        self.setWindowTitle("SSR Visualizer")
+        self.redBackground = "QPushButton { background: red }"
+        self.greenBackground = "QPushButton { background: lightgreen }"
+
+        # --- Screen Scaling ---
         screen = QtGui.QGuiApplication.primaryScreen()
         scaling_factor = screen.logicalDotsPerInch() / 96.0
         screen_width = screen.geometry().width()
         screen_height = screen.geometry().height()
 
+        self.setStyleSheet("""
+            QWidget { font-size: 11pt; }
+            QPushButton { font-size: 12pt; font-weight: bold; }""")
+
         self.resize(QtCore.QSize(
             int((screen_width / scaling_factor) / 3.8),
-            int((screen_height / scaling_factor) / 1.5)
-        ))
-        self.layout= QtWidgets.QGridLayout()
-        self.layout.setRowStretch(2, 1)
-        self.selectedssr= None
-        self.plot_path= None
-        self.plot= None
+            int((screen_height / scaling_factor) / 1.5)))
 
-#       # Build GUI
-        build_ssr_selection(self)     # row 1, columns 0-1
-        build_channel_selection(self) # row 1, columns 2-3
-        build_image_output(self)      # row 2, columns 0-3
-        build_console(self)           # row 3, columns 0-3
-        build_run_button(self)        # row 4, columns 0-2
-        build_quit_button(self)       # row 4, column 3
-        gui_formatting(self)
+        # --- Layout Initialization ---
+        self.layout = QtWidgets.QGridLayout()
+        self.layout.setRowStretch(3, 3)
+        self.layout.setRowStretch(4, 1)
 
+        # --- State Variables ---
+        self.selectedssr = None
+        self.selectedchannel = None
+        self.selectedquery = None
+        self.plot_rgba = None
+        self.display_mode = "pointers"
+
+        # --- Timer ---
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.run_ssr)
+
+        # --- Build GUI Components ---
+        self._build_ssr_selection()           
+        self._build_channel_selection()       
+        self._build_auto_update_checkbox()     
+        self._build_toggle_display_checkbox() 
+        self._build_query_rate()              
+        self._build_image_output()            
+        self._build_console()                 
+        self._build_run_button()              
+        self._build_quit_button()             
+        self._apply_gui_formatting()
+
+
+    # ---------------------------------------------------------
+    # Event Handlers
+    # ---------------------------------------------------------
     def selected_ssr(self, text):
-        "Handle changes in the SSR selection combo box."
-        self.selectedssr= text
+        self.selectedssr = text
 
     def selected_channel(self, text):
-        "Handle changes in the channel selection combo box."
-        self.selectedchannel= text
+        self.selectedchannel = text
+
+    def selected_query(self, text):
+        self.selectedquery = float(text[:-3])
 
     def run_ssr(self):
-        "Handle the Run button click event"
+        """Handle the Run button click event and timer execution."""
+        self.consoleoutput.clear() 
         generate_image(self)
-        build_image_output(self)
-        if self.plot is None:
-            print(f"  - SSR-{self.selectedssr} is OFF, cannot generate plot.\n")
+        self._build_image_output()
+
+        if self.plot_rgba is None:
+            print(f"  - (Error): Cannot generate plot.\n")
+
+    def toggle_auto_update(self, checked):
+        if checked:
+            self.timer.start(30000) 
+            self.run_ssr()          
+        else:
+            self.timer.stop()
+            print("  - Auto-update mode DISABLED.\n")
+
+    def toggle_display(self, checked):
+        self.display_mode = "time" if checked else "pointers"
 
     def quit_event(self):
-        "Handle the quit button click event."
         sys.exit(1)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Use a single-shot timer to wait 100ms after the resize stops
+        QtCore.QTimer.singleShot(100, self._build_image_output)
 
-def build_run_button(self):
-    "build the run button"
-    self.runssrbutton= QtWidgets.QPushButton("Run SSR Visualizer")
-    self.runssrbutton.setToolTip("Run the SSR Visualizer to generate a visual "
-                                 "of SSR pointers and data usage status.")
-    self.runssrbutton.setMinimumHeight(40)
-    runfont= self.runssrbutton.font()
-    runfont.setBold(True)
-    runfont.setPointSize(2 * runfont.pointSize())
-    self.runssrbutton.setFont(runfont)
-    self.runssrbutton.setStyleSheet(self.greenBackground)
-    self.layout.addWidget(self.runssrbutton, 4, 0, 1, 3)
-    self.runssrbutton.clicked.connect(self.run_ssr)
+    # ---------------------------------------------------------
+    # UI Builder Methods
+    # ---------------------------------------------------------
+    def _build_ssr_selection(self):
+        self.ssrlabel = QtWidgets.QLabel("Select SSR:")
+        self.ssrlabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
+        self.ssrlabel.setMinimumHeight(30)
+        self.layout.addWidget(self.ssrlabel, 1, 0)
 
+        self.ssrcombobox = QtWidgets.QComboBox()
+        self.ssrcombobox.addItems(["A", "B"])
+        self.ssrcombobox.setEditable(True)
+        self.ssrcombobox.setMinimumHeight(30)
+        self.ssrcombobox.setToolTip("Select which SSR to visualize.")
+        line_edit = self.ssrcombobox.lineEdit()
+        self.line_edit_align(line_edit)
+        self.layout.addWidget(self.ssrcombobox, 1, 1)
+        self.selectedssr = self.ssrcombobox.currentText()
+        self.ssrcombobox.currentTextChanged.connect(self.selected_ssr)
 
-def build_ssr_selection(self):
-    "build the SSR selection combo box"
-    # Section label
-    self.ssrlabel= QtWidgets.QLabel("Select SSR:")
-    self.ssrlabel.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignCenter)
-    self.ssrlabel.setMinimumHeight(30)
-    ssrfont= self.ssrlabel.font()
-    ssrfont.setPointSize(2 * ssrfont.pointSize())
-    self.ssrlabel.setFont(ssrfont)
-    self.layout.addWidget(self.ssrlabel, 1, 0)
+    def _build_channel_selection(self):
+        self.channellabel = QtWidgets.QLabel("Channel:")
+        self.channellabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
+        self.channellabel.setMinimumHeight(30)
+        self.layout.addWidget(self.channellabel, 1, 2)
 
-    # SSR selection combo box
-    self.ssrcombobox= QtWidgets.QComboBox()
-    self.ssrcombobox.addItems(["A", "B"])
-    self.ssrcombobox.setEditable(True)
-    self.ssrcombobox.setToolTip("Select which SSR to visualize")
-    line_edit= self.ssrcombobox.lineEdit() # Move selectable items to center of box
-    line_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-    line_edit.setReadOnly(True)
-    self.ssrcombobox.setMinimumHeight(30)
-    ssrcombofont= self.ssrcombobox.font()
-    ssrcombofont.setPointSize(2 * ssrcombofont.pointSize())
-    self.ssrcombobox.setFont(ssrcombofont)
-    self.layout.addWidget(self.ssrcombobox, 1, 1)
-    self.selectedssr= self.ssrcombobox.currentText()
-    self.ssrcombobox.currentTextChanged.connect(self.selected_ssr)
+        self.channelcombobox = QtWidgets.QComboBox()
+        self.channelcombobox.addItems(["Flight", "ASVT"])
+        self.channelcombobox.setEditable(True)
+        self.channelcombobox.setMinimumHeight(30)
+        self.channelcombobox.setToolTip("Select which channel to source data from.")
+        line_edit = self.channelcombobox.lineEdit()
+        self.line_edit_align(line_edit)
+        self.layout.addWidget(self.channelcombobox, 1, 3)
+        self.selectedchannel = self.channelcombobox.currentText()
+        self.channelcombobox.currentTextChanged.connect(self.selected_channel)
 
+    def _build_auto_update_checkbox(self):
+        self.auto_update_checkbox = QtWidgets.QCheckBox("Auto-Update")
+        self.auto_update_checkbox.setMinimumHeight(30)
+        self.auto_update_checkbox.setToolTip("Enable or disable automatic updates every 30 seconds.")
+        self.layout.addWidget(self.auto_update_checkbox, 2, 0,
+            alignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        self.auto_update_checkbox.toggled.connect(self.toggle_auto_update)
 
-def build_channel_selection(self):
-    "build the channel selection combo box"
-    # Section label
-    self.channellabel= QtWidgets.QLabel("Channel:")
-    self.channellabel.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignCenter)
-    self.channellabel.setMinimumHeight(30)
-    channelfont= self.channellabel.font()
-    channelfont.setPointSize(2 * channelfont.pointSize())
-    self.channellabel.setFont(channelfont)
-    self.layout.addWidget(self.channellabel, 1, 2)
+    def _build_toggle_display_checkbox(self):
+        self.display_checkbox = QtWidgets.QCheckBox("Pointer/Time")
+        self.display_checkbox.setMinimumHeight(30)
+        self.display_checkbox.setToolTip("Toggle display modes between Pointer and Time Modes. Unchecked is Pointer Mode.")
+        self.layout.addWidget(self.display_checkbox, 2, 1,
+            alignment=QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        self.display_checkbox.toggled.connect(self.toggle_display)
 
-    # Channel selection combo box
-    self.channelcombobox= QtWidgets.QComboBox()
-    self.channelcombobox.addItems(["Flight", "ASVT"])
-    self.channelcombobox.setEditable(True)
-    self.channelcombobox.setToolTip("Select which data channel to query data from.")
-    line_edit= self.channelcombobox.lineEdit() # Move selectable items to center of box
-    line_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-    line_edit.setReadOnly(True)
-    self.channelcombobox.setMinimumHeight(30)
-    ssrcombofont= self.channelcombobox.font()
-    ssrcombofont.setPointSize(2 * ssrcombofont.pointSize())
-    self.channelcombobox.setFont(ssrcombofont)
-    self.layout.addWidget(self.channelcombobox, 1, 3)
-    self.selectedchannel= self.channelcombobox.currentText()
-    self.channelcombobox.currentTextChanged.connect(self.selected_channel)
+    def _build_query_rate(self):
+        self.querylabel = QtWidgets.QLabel("Query Time:")
+        self.querylabel.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignCenter)
+        self.querylabel.setMinimumHeight(30)
+        self.layout.addWidget(self.querylabel, 2, 2)
 
+        self.querycombobox = QtWidgets.QComboBox()
+        self.querycombobox.addItems(["18.6 hr", "24 hr", "48 hr"])
+        self.querycombobox.setEditable(True)
+        self.querycombobox.setMinimumHeight(30)
+        self.querycombobox.setToolTip("Select the query time range (i.e., how far back in time to query).")
+        line_edit = self.querycombobox.lineEdit()
+        self.line_edit_align(line_edit)
+        self.layout.addWidget(self.querycombobox, 2, 3)
+        self.selectedquery = float(self.querycombobox.currentText()[:-3])
+        self.querycombobox.currentTextChanged.connect(self.selected_query)
 
-def build_image_output(self):
-    "Centering the plot as a static image."
-    # Initialize the QLabel if it doesn't exist yet
-    if not hasattr(self, 'image_label'):
-        self.image_label = QtWidgets.QLabel()
-        self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, 
-                                       QtWidgets.QSizePolicy.Policy.Expanding)
-        self.image_label.setMinimumHeight(int(self.height() * 0.70))
-        self.image_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setStyleSheet("background-color: white;")
-        
-        # Add to layout at row 2, col 0, spanning 1 row and 4 columns
-        self.layout.addWidget(self.image_label, 2, 0, 1, 4)
+    def line_edit_align(self, line_edit):
+        """Helper to align line edits and make them read-only."""
+        line_edit.setAlignment(QtCore.Qt.AlignCenter)
+        line_edit.setReadOnly(True)
 
-    if self.plot is not None:
-        try:
-            img_bytes = self.plot.to_image(format="png", width=750, height=750)
-            pixmap = QtGui.QPixmap()
-            pixmap.loadFromData(img_bytes)
-            scaled_pixmap = pixmap.scaled(
-                self.image_label.size(), 
-                QtCore.Qt.AspectRatioMode.KeepAspectRatio, 
-                QtCore.Qt.TransformationMode.SmoothTransformation
-            )
-            self.image_label.setPixmap(scaled_pixmap)
-        except Exception as e:
-            print(f"Error generating static image: {e}")
-            self.image_label.setText("Error generating image. Is 'kaleido' installed?")
-    else:
-        self.image_label.setStyleSheet("background-color: #f0f0f0;")
+    def _build_image_output(self):
+        """
+        Renders the Matplotlib raw RGBA pixel array into the GUI QLabel.
+        """
+        # Initialize the QLabel if it doesn't exist yet
+        if not hasattr(self, 'image_label'):
+            self.image_label = QtWidgets.QLabel("Waiting for data...")
+            self.image_label.setAlignment(QtCore.Qt.AlignCenter)
+            self.image_label.setMinimumSize(100, 100)
+            self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                                           QtWidgets.QSizePolicy.Expanding)
+            self.layout.addWidget(self.image_label, 3, 0, 1, 4)
 
+        # Check if we have valid pixel data from Matplotlib
+        if hasattr(self, 'plot_rgba') and self.plot_rgba is not None:
+            try:
+                # Deep Copy the array to ensure stable memory for QImage
+                image_data = self.plot_rgba.copy()
+                height, width, channels = image_data.shape
+                bytes_per_line = channels * width
+                qimage = QtGui.QImage(
+                    image_data.data, 
+                    width, 
+                    height, 
+                    bytes_per_line, 
+                    QtGui.QImage.Format_RGBA8888
+                )
 
-def build_console(self):
-    "build the console output area"
-    self.consolequtput= QtWidgets.QTextEdit()
-    self.consolequtput.setReadOnly(True)
-    self.consolequtput.setLineWrapMode(QtWidgets.QTextEdit.LineWrapMode.NoWrap)
-    self.consolequtput.setFont(QtGui.QFont("Courier", 10))
-    self.consolequtput.setMinimumHeight(int(self.height() * 0.08))
-    self.layout.addWidget(self.consolequtput, 3, 0, 1, 4)
-    sys.stdout= QTextEditLogger(self.consolequtput)
-    sys.stderr= QTextEditLogger(self.consolequtput)
+                # Force a deep copy into the QImage so it is safe to discard the numpy array
+                qimage = qimage.copy()
+                pixmap = QtGui.QPixmap.fromImage(qimage)
 
+                # PyQt5 Enum Fix: KeepAspectRatio and SmoothTransformation
+                scaled_pixmap = pixmap.scaled(
+                    self.image_label.size(), 
+                    QtCore.Qt.KeepAspectRatio, 
+                    QtCore.Qt.SmoothTransformation
+                )
+                self.image_label.setPixmap(scaled_pixmap)
 
-def build_quit_button(self):
-    "build the quit button"
-    self.quitbutton= QtWidgets.QPushButton("Quit")
-    self.quitbutton.setToolTip("Close Tool")
-    self.quitbutton.setMinimumHeight(40)
-    quitfont= self.quitbutton.font()
-    quitfont.setBold(True)
-    quitfont.setPointSize(2 * quitfont.pointSize())
-    self.quitbutton.setFont(quitfont)
-    self.quitbutton.setStyleSheet(self.redBackground)
-    self.layout.addWidget(self.quitbutton, 4, 3)
-    self.quitbutton.clicked.connect(self.quit_event)
+            except Exception as e:
+                print(f"Error displaying native image: {e}")
+                self.image_label.setText(f"Error generating image:\n{e}")
+        else:
+            # Fallback if no data has been generated yet
+            self.image_label.setText("Waiting for data...")
 
+    def _build_console(self):
+        self.consoleoutput = QtWidgets.QTextEdit()
+        self.consoleoutput.setReadOnly(True)
+        self.consoleoutput.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+        self.consoleoutput.setFont(QtGui.QFont("Courier", 10))
+        self.consoleoutput.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding)
+        self.layout.addWidget(self.consoleoutput, 4, 0, 1, 4)
+        sys.stdout = QTextEditLogger(self.consoleoutput)
+        sys.stderr = QTextEditLogger(self.consoleoutput)
 
-def gui_formatting(self):
-    "formatting for the GUI"
-    self.textdisplay= QtWidgets.QTextEdit()
-    self.textdisplay.setReadOnly ( True )
-    self.textdisplay.setLineWrapMode(QtWidgets.QTextEdit.LineWrapMode.NoWrap)
-    self.textdisplay.moveCursor(QtGui.QTextCursor.MoveOperation.End)
-    font= QtGui.QFont("Courier", 10, QtGui.QFont.Weight.Bold)
-    self.textdisplay.setFont (font)
-    self.setLayout(self.layout)
+    def _build_run_button(self):
+        self.runssrbutton = QtWidgets.QPushButton("Run SSR Visualizer")
+        self.runssrbutton.setMinimumHeight(40)
+        self.runssrbutton.setStyleSheet(self.greenBackground)
+        self.runssrbutton.setToolTip("Send the order to the chef... I mean, run the SSR Visualizer.")
+        runfont = self.runssrbutton.font()
+        runfont.setBold(True)
+        self.runssrbutton.setFont(runfont)
+        self.layout.addWidget(self.runssrbutton, 5, 0, 1, 3)
+        self.runssrbutton.clicked.connect(self.run_ssr)
+
+    def _build_quit_button(self):
+        self.quitbutton = QtWidgets.QPushButton("Quit")
+        self.quitbutton.setMinimumHeight(40)
+        self.quitbutton.setStyleSheet(self.redBackground)
+        self.quitbutton.setToolTip("Like you really needed a ToolTip for the Quit button...")
+        quitfont = self.quitbutton.font()
+        quitfont.setBold(True)
+        self.quitbutton.setFont(quitfont)
+        self.layout.addWidget(self.quitbutton, 5, 3)
+        self.quitbutton.clicked.connect(self.quit_event)
+
+    def _apply_gui_formatting(self):
+        self.textdisplay = QtWidgets.QTextEdit()
+        self.textdisplay.setReadOnly(True)
+        self.textdisplay.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+        self.textdisplay.moveCursor(QtGui.QTextCursor.End)
+        font = QtGui.QFont("Courier", 10, QtGui.QFont.Bold)
+        self.textdisplay.setFont(font)
+        self.setLayout(self.layout)

@@ -1,6 +1,7 @@
 "Build SSR DBE & SEU by submodule plots"
 
 import plotly.graph_objects as go
+from components.misc import write_json_file
 
 
 def format_plot(plot, user_vars):
@@ -73,4 +74,5 @@ def build_sbe_vs_dbe_submod_plot(user_vars):
     add_plot_trace(plot, sbe_x, sbe_y, "SBE by Submodule")
     add_plot_trace(plot, dbe_x, dbe_y, "DBE by Submodule")
     format_plot(plot, user_vars)
-    plot.write_html(f"{base_dir}/Output/SBE_vs_DBE_by_Submodule.html")
+    # plot.write_html(f"{base_dir}/Output/SBE_vs_DBE_by_Submodule.html")
+    write_json_file(user_vars, plot, "SBE_vs_DBE_by_Submodule.json")

@@ -40,7 +40,8 @@ def jsontime2cxo(time_in):
 
 def get_tx_on(ts,tp,tx):
     "returns 'ON' if specified transmitter was on during this interval."
-    ctx = maude_data(ts,tp,f"STAT_5MIN_MIN_CTX{tx}X",False)
+    # ctx = maude_data(ts,tp,f"STAT_5MIN_MIN_CTX{tx}X",False)
+    ctx = maude_data(ts,tp,f"CTX{tx}X",False)
     ctx_val = map(int,ctx['data-fmt-1']['values'])
     if min(ctx_val) == 0:
         return 'ON'
@@ -50,27 +51,31 @@ def get_tx_on(ts,tp,tx):
 def get_nearest_mod(t):
     """ Returns surrounding M1050 monitor state"""
     #sanitize timeformats
-    t.format = "yday"
-    base_url = "https://occweb.cfa.harvard.edu/maude/mrest/FLIGHT/msid.json?m=M1050"
-    url = base_url + "&ts=" +str(t) + "&nearest=t"
-    with urllib.request.urlopen(url) as response:
-        data_after= json.loads(response.read())
-    mod_after = int(data_after['data-fmt-1']['values'][0]) # maybe shoudl check timestamp to gate missing data
-    mod_time = jsontime2cxo(str(data_after['data-fmt-1']['times'][0]))
-    after_dt = (mod_time - t)*86400  # CxoTime timedelta is in fractional days for yday format
-    if abs(after_dt) > 60: # Ignore monitor data that is signficantly far away.  Just assume modulation is on during a pass
-        mod_after = 2
-    url = base_url + "&tp=" +str(t) + "&nearest=t"
-    with urllib.request.urlopen(url) as response:
-        data_before= json.loads(response.read())
-    mod_before = int(data_before['data-fmt-1']['values'][0])
-    mod_time = jsontime2cxo(str(data_after['data-fmt-1']['times'][0]))
-    before_dt = (t - mod_time)*86400 # CxoTime timedelta is in fractional days for yday format
-    if abs(before_dt) > 60:
-        mod_before = 2
-    if (mod_before == 1) or (mod_after ==1):
-        return 'OFF'
-    return 'ON'
+    try:
+        t.format = "yday"
+        base_url = "https://occweb.cfa.harvard.edu/maude/mrest/FLIGHT/msid.json?m=M1050"
+        url = base_url + "&ts=" +str(t) + "&nearest=t"
+        with urllib.request.urlopen(url) as response:
+            data_after= json.loads(response.read())
+        mod_after = int(data_after['data-fmt-1']['values'][0]) # maybe shoudl check timestamp to gate missing data
+        mod_time = jsontime2cxo(str(data_after['data-fmt-1']['times'][0]))
+        after_dt = (mod_time - t)*86400  # CxoTime timedelta is in fractional days for yday format
+        if abs(after_dt) > 60: # Ignore monitor data that is signficantly far away.  Just assume modulation is on during a pass
+            mod_after = 2
+        url = base_url + "&tp=" +str(t) + "&nearest=t"
+        with urllib.request.urlopen(url) as response:
+            data_before= json.loads(response.read())
+        mod_before = int(data_before['data-fmt-1']['values'][0])
+        mod_time = jsontime2cxo(str(data_after['data-fmt-1']['times'][0]))
+        before_dt = (t - mod_time)*86400 # CxoTime timedelta is in fractional days for yday format
+        if abs(before_dt) > 60:
+            mod_before = 2
+        if (mod_before == 1) or (mod_after ==1):
+            return 'OFF'
+        return 'ON'
+    except IndexError as e:
+        print(f"Error: {e}.  No M1050 data found for {t}.  Assuming modulation is ON.")
+        return 'ON'
 
 
 def get_support_stats(ts,tp):
