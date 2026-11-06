@@ -3,12 +3,7 @@ import urllib.request
 import json
 from datetime import datetime, timedelta
 from tqdm import tqdm
-from dataclasses import dataclass
 
-@dataclass
-class MSIDData:
-    msid: str
-    data: pd.DataFrame 
 
 def maude_data_request(ts, tp, msid):
     """Requests a particular MSID for an interval from MAUDE using urllib"""
@@ -19,9 +14,10 @@ def maude_data_request(ts, tp, msid):
     html = response.read()
     return json.loads(html)
 
+
 def get_data(ts, tp, msids):
-    """Synchronous fetching with urllib, vectorized Pandas processing"""
-    data = []
+    """Synchronous fetching with urllib, returning a single time-unified DataFrame"""
+    dfs = []
 
     for msid in tqdm(msids):
         raw_times_accum = []
@@ -31,7 +27,7 @@ def get_data(ts, tp, msids):
         # Collect Data
         while True:
             raw_data = maude_data_request(ts + shift_time, tp, msid)
-            
+
             chunk_times = raw_data.get('data-fmt-1', {}).get('times', [])
             chunk_values = raw_data.get('data-fmt-1', {}).get('values', [])
 
@@ -54,20 +50,30 @@ def get_data(ts, tp, msids):
 
         # Handle edge case where no data was returned for the entire MSID
         if not raw_times_accum:
-            data.append(MSIDData(msid, pd.DataFrame(columns=['times', 'values'])))
             continue
 
         # --- PANDAS VECTORIZATION ---
-        df = pd.DataFrame({'times': raw_times_accum, 'values': raw_values_accum})
-        
+        col_name = msid.lower()
+        df = pd.DataFrame({'datetime': raw_times_accum, col_name: raw_values_accum})
+
         # Vectorized deduplication and type casting
-        df.drop_duplicates(subset=['times'], inplace=True)
-        df['times'] = pd.to_datetime(df['times'].astype(str), format='%Y%j%H%M%S%f')
-        df['values'] = pd.to_numeric(df['values'])
+        df.drop_duplicates(subset=['datetime'], inplace=True)
+        df['datetime'] = pd.to_datetime(df['datetime'].astype(str), format='%Y%j%H%M%S%f')
+        df[col_name] = pd.to_numeric(df[col_name])
 
-        df.sort_values(by='times', inplace=True)
-        df.reset_index(drop=True, inplace=True)
+        # Set datetime as the index so pd.concat can auto-align all MSIDs perfectly
+        df.set_index('datetime', inplace=True)
+        dfs.append(df)
 
-        data.append(MSIDData(msid, df))
+    if not dfs:
+        return pd.DataFrame()
 
-    return data
+    # Concatenate all individual MSID DataFrames side-by-side using the DatetimeIndex
+    merged_df = pd.concat(dfs, axis=1)
+
+    # Sort chronologically, forward fill missing values across the unified timeline, and extract index
+    merged_df.sort_index(inplace=True)
+    merged_df.ffill(inplace=True)
+    merged_df.reset_index(inplace=True)
+
+    return merged_df

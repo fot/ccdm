@@ -1,12 +1,13 @@
 import json
 import traceback
 from pathlib import Path
+from datetime import datetime, time, timezone, timedelta
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
                              QLabel, QFileDialog, QTextEdit, QMessageBox, QComboBox,
-                             QDateTimeEdit, QFormLayout, QGroupBox, QLineEdit, QWidget,
-                             QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
-from PyQt6.QtCore import QDateTime, QTime, Qt
+                             QFormLayout, QGroupBox, QLineEdit, QWidget, QAbstractItemView,
+                             QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit)
+from PyQt6.QtCore import Qt, QDate
 from workers import SFTPWorker
 from reports import update_maude_refdata
 from svn import commit_refdata
@@ -152,36 +153,67 @@ class JsonViewerDialog(QDialog):
         layout.addWidget(text_edit)
 
 
+class DoyDateEdit(QDateEdit):
+    """Custom QDateEdit that appends (YYYY:DOY) to the standard date display."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Set base format so the calendar dropdown and internal parsing behave normally
+        self.setDisplayFormat("MM/dd/yyyy")
+
+    def textFromDateTime(self, dt) -> str:
+        """Overrides the display text to inject the Day of Year formatting."""
+        if dt.isValid():
+            date = dt.date()
+            doy = date.dayOfYear()
+            base = date.toString("MM/dd/yyyy")
+            year = date.toString("yyyy")
+            # Formats DOY with a 3-digit zero-pad (e.g., 10/26/2026 (2026:299))
+            return f"{base} ({year}:{doy:03d})"
+        return super().textFromDateTime(dt)
+
+    def dateTimeFromText(self, text: str):
+        """Strips the injected DOY text so Qt can parse user manual typing normally."""
+        clean_text = text.split(" (")[0]
+        return super().dateTimeFromText(clean_text)
+
+
 class MaudeDialog(QDialog):
-    """Dialog for MAUDE database query date ranges with time fixed at 08:00:00."""
+    """Dialog for MAUDE database query using full-day date ranges."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("MAUDE Data Import")
-        self.resize(350, 180)
+        self.resize(400, 200)
+
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Select the UTC date range for MAUDE telemetry extraction (Time fixed at 08:00:00):"))
+        lbl = QLabel("Select the UTC date range for MAUDE telemetry extraction.\n(Time automatically spans 00:00:00.000 to 23:59:59.999)")
+        layout.addWidget(lbl)
+
         form_layout = QFormLayout()
 
-        now = QDateTime.currentDateTime()
-        default_start_date = now.date().addDays(-7)
-        default_end_date = now.date()
+        # Get current UTC date and determine the day of the week (Monday = 0, Sunday = 6)
+        now_date = datetime.now(timezone.utc).date()
+        current_weekday = now_date.weekday()
 
-        self.start_dt = QDateTimeEdit(self)
-        self.start_dt.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
-        self.start_dt.setDateTime(QDateTime(default_start_date, QTime(8, 0, 0)))
+        # Calculate Last Week's Monday
+        last_monday = now_date + timedelta(days=(-current_weekday - 7))
+
+        # Calculate This Week's Tuesday
+        this_tuesday = now_date + timedelta(days=(1 - current_weekday))
+
+        # Inject the custom DoyDateEdit widgets
+        self.start_dt = DoyDateEdit(self)
+        self.start_dt.setDate(QDate(last_monday.year, last_monday.month, last_monday.day))
         self.start_dt.setCalendarPopup(True)
-        self.start_dt.dateChanged.connect(lambda d: self.start_dt.setTime(QTime(8, 0, 0)))
 
-        self.end_dt = QDateTimeEdit(self)
-        self.end_dt.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
-        self.end_dt.setDateTime(QDateTime(default_end_date, QTime(8, 0, 0)))
+        self.end_dt = DoyDateEdit(self)
+        self.end_dt.setDate(QDate(this_tuesday.year, this_tuesday.month, this_tuesday.day))
         self.end_dt.setCalendarPopup(True)
-        self.end_dt.dateChanged.connect(lambda d: self.end_dt.setTime(QTime(8, 0, 0)))
 
-        form_layout.addRow("Start Time (UTC):", self.start_dt)
-        form_layout.addRow("End Time (UTC):", self.end_dt)
+        form_layout.addRow("Start Date (UTC):", self.start_dt)
+        form_layout.addRow("End Date (UTC):", self.end_dt)
         layout.addLayout(form_layout)
 
+        # Action Buttons
         btn_layout = QHBoxLayout()
         self.btn_fetch = QPushButton("Queue MAUDE Query")
         self.btn_fetch.setStyleSheet("background-color: #2c3e50; color: white; font-weight: bold;")
@@ -195,7 +227,18 @@ class MaudeDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def get_date_range(self):
-        return self.start_dt.dateTime(), self.end_dt.dateTime()
+        """Returns explicitly boundary-locked Python datetime objects in UTC."""
+        # Extracts pure Python datetime.date objects, ignoring the DOY UI text completely
+        start_date = self.start_dt.date().toPyDate()
+        end_date = self.end_dt.date().toPyDate()
+
+        # Lock Start to 00:00:00.000 UTC
+        start_datetime = datetime.combine(start_date, time.min).replace(tzinfo=timezone.utc)
+
+        # Lock End to 23:59:59.999 UTC (using 999000 microseconds)
+        end_datetime = datetime.combine(end_date, time(23, 59, 59, 999000)).replace(tzinfo=timezone.utc)
+
+        return start_datetime, end_datetime
 
 
 class ErpSourceDialog(QDialog):

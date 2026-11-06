@@ -13,6 +13,7 @@ from binary_convert import convert_dis_file, convert_dat_file
 from reports import (generate_trending_report, generate_correlation_report,
                      update_html_table, get_correlation_report_title)
 from plots import generate_residual_plot
+from maude_query import get_data
 
 try:
     import paramiko
@@ -400,3 +401,38 @@ class ExportCSVWorker(QThread):
 
         except Exception as e:
             self.error.emit(f"{e}\n{traceback.format_exc()}")
+
+
+class MaudeQueryWorker(QThread):
+    """Background thread to handle synchronous urllib requests without freezing the GUI."""
+    status = pyqtSignal(str)
+    finished = pyqtSignal(object)  # Emits a SINGLE merged pd.DataFrame (STO Compatible)
+    error = pyqtSignal(str)
+
+    def __init__(self, start_dt, end_dt, parent=None):
+        super().__init__(parent)
+        self.start_dt = start_dt
+        self.end_dt = end_dt
+        self.msids = ["CCSDSVCD", "SFDU_BYTE043X", "SFDU_BYTE045X",
+                      "SFDU_BYTE049X", "SDFU_BYTE087X", "CIUMBITR","SFDU_BYTE067"]
+        self._is_canceled = False
+
+    def cancel(self):
+        self._is_canceled = True
+
+    def run(self):
+        try:
+            self.status.emit(f"Initiating MAUDE fetch for {len(self.msids)} MSIDs...")
+
+            # Execute the synchronous urllib fetch loop which now returns the unified DataFrame
+            merged_df = get_data(self.start_dt, self.end_dt, self.msids)
+
+            if self._is_canceled:
+                self.error.emit("MAUDE query canceled by user.")
+                return
+
+            self.status.emit("MAUDE Data successfully retrieved.")
+            self.finished.emit(merged_df)
+
+        except Exception as e:
+            self.error.emit(f"Failed to fetch MAUDE data:\n{e}\n{traceback.format_exc()}")

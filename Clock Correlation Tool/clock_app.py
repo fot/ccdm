@@ -17,7 +17,7 @@ from PyQt6.QtCore import Qt
 
 # Local Imports
 from workers import (ConsoleStream, SFTPWorker, PipelineWorker, StoParserWorker,
-                     BatchOutputsWorker, ExportCSVWorker)
+                     BatchOutputsWorker, ExportCSVWorker, MaudeQueryWorker)
 from data_parsing import parse_sto_contacts
 from dialogs import (SFTPConfigDialog, JsonViewerDialog, MaudeDialog,
                      BinaryExportDialog, ErpSourceDialog, DataSourceDialog,
@@ -248,7 +248,7 @@ class ClockDriftApp(QMainWindow):
     def check_ready_state(self):
         has_erp = self.erp_file is not None
         has_data = len(self.nrt_files) > 0 or self.maude_range is not None or self.telemetry_df is not None
-        
+
         if has_erp and has_data:
             self.btn_run.setEnabled(True)
         else:
@@ -266,7 +266,7 @@ class ClockDriftApp(QMainWindow):
 
     def toggle_legacy_mode(self):
         self.legacy_mode = self.chk_legacy.isChecked()
-        
+
     def open_sftp_settings(self):
         dialog = SFTPConfigDialog(self)
         dialog.exec()
@@ -413,13 +413,86 @@ class ClockDriftApp(QMainWindow):
         dialog = MaudeDialog(self)
         if dialog.exec():
             start_dt, end_dt = dialog.get_date_range()
+
             if start_dt >= end_dt:
-                QMessageBox.warning(self, "Invalid Range", "Start time must be before End time.")
+                QMessageBox.warning(self, "Invalid Range", "Start date must be before or equal to End date.")
                 return
+
+            # Store the requested range
             self.maude_range = (start_dt, end_dt)
-            maude_str = f"MAUDE Query: {start_dt.toString('yyyy-MM-dd HH:mm:ss')} to {end_dt.toString('yyyy-MM-dd HH:mm:ss')}"
-            self.list_nrt_files.addItem(maude_str)
-            print(f"[UI] {maude_str} queued for extraction.")
+
+            maude_str = f"MAUDE Query: {start_dt.strftime('%m/%d/%Y (%Y:%j)')} to {end_dt.strftime('%m/%d/%Y (%Y:%j)')}"
+            print(f"[UI] Initiating background MAUDE query: {maude_str}")
+
+            # Spawn an indeterminate progress dialog (min 0, max 0 creates a back-and-forth spinner)
+            self.maude_progress = QProgressDialog("Connecting to MAUDE...", "Cancel", 0, 0, self)
+            self.maude_progress.setWindowTitle("Fetching Telemetry")
+            self.maude_progress.setWindowModality(Qt.WindowModality.WindowModal)
+            self.maude_progress.setAutoClose(False)
+            self.maude_progress.setAutoReset(False)
+            self.maude_progress.show()
+
+            # Spin up the background worker
+            self.maude_worker = MaudeQueryWorker(start_dt, end_dt)
+            self.maude_worker.status.connect(self.maude_progress.setLabelText)
+            self.maude_worker.finished.connect(self.on_maude_finished)
+            self.maude_worker.error.connect(self.on_maude_error)
+
+            # Allow user to break out of the fetch
+            self.maude_progress.canceled.connect(self.maude_worker.cancel)
+
+            self.maude_worker.start()
+
+    def on_maude_error(self, err_msg):
+        """Handle exceptions thrown during the MAUDE request."""
+        self.maude_progress.close()
+        print(f"[ERROR] {err_msg}")
+        QMessageBox.critical(self, "MAUDE Error", err_msg)
+
+    def on_maude_finished(self, maude_df):
+        """Callback when the MAUDE thread completes successfully."""
+        self.maude_progress.close()
+
+        if maude_df.empty:
+            QMessageBox.information(self, "No Data", "No data returned from MAUDE.")
+            return
+
+        # 1. Parse supports identically to STO files
+        supports = parse_sto_contacts(maude_df, time_col='datetime')
+
+        if not supports:
+            QMessageBox.information(self, "No Contacts", "No physical supports >= 2.0 minutes were found in MAUDE data.")
+            return
+
+        data_year = maude_df['datetime'].min().strftime("%Y")
+        history_file = Path(self.base_out_dir) / data_year / "contact_history.json"
+
+        # 2. Launch the STO Dialog using the MAUDE data
+        dialog = StoContactSelectionDialog(supports, history_file, self)
+
+        if dialog.exec():
+            combined_mask = pd.Series(False, index=maude_df.index)
+            num_extracts = len(dialog.selected_windows)
+            display_strs = [f"MAUDE Extracts ({num_extracts}):"]
+
+            # Filter data to only include the selected windows
+            for w_start, w_end in dialog.selected_windows:
+                combined_mask |= (maude_df['datetime'] >= w_start) & (maude_df['datetime'] < w_end)
+                display_strs.append(f"{w_start.strftime('%Y:%j %H:%M')} to {w_end.strftime('%H:%M')}")
+
+            self.telemetry_df = maude_df.loc[combined_mask].copy()
+
+            # Clean up transient support metadata
+            if 'time_diff' in self.telemetry_df.columns:
+                self.telemetry_df = self.telemetry_df.drop(columns=['time_diff', 'support_id'])
+
+            # 3. Post summary to the UI queue list
+            summary_str = "\n".join(display_strs)
+            if summary_str not in self.nrt_files:
+                self.nrt_files.append(summary_str)
+                self.list_nrt_files.addItem(summary_str)
+
+            print(f"[UI] {num_extracts} MAUDE support(s) queued for processing.")
             self.check_ready_state()
 
     def open_sto_parser(self):
@@ -824,7 +897,7 @@ class ClockDriftApp(QMainWindow):
     def on_csv_error(self, err_msg):
         if hasattr(self, 'csv_progress_dialog'):
             self.csv_progress_dialog.close()
-        
+
         if "canceled by user" in err_msg:
             print("[UI] CSV Export canceled.")
         else:
