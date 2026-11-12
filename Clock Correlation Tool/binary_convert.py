@@ -88,7 +88,7 @@ def format_for_binary_export(nrt_df: pd.DataFrame) -> pd.DataFrame:
         "odb_clock_variance": float(resid_var),
         "odb_clock_majfm_cnt": 0,
         "odb_clock_majfm_utc": 0.0,
-        "odb_clock_key": -int(adj_data_l),
+        "odb_clock_key": -round(adj_data_l),
         "odb_clock_key_char": "C**********",
         "odb_clock_base_ref": "1985:001:00:00:00.000"
     })
