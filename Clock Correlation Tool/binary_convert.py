@@ -10,6 +10,7 @@ from misc import log_callback, get_constants
 # Pull Constants
 CONSTANTS = get_constants()
 JD_1985 = CONSTANTS['JD_1985']
+NOMINAL_RATE = CONSTANTS['NOMINAL_RATE']
 
 
 def format_for_binary_export(nrt_df: pd.DataFrame) -> pd.DataFrame:
@@ -20,7 +21,7 @@ def format_for_binary_export(nrt_df: pd.DataFrame) -> pd.DataFrame:
 
     c1 = nrt_df['global_predicted_time'].iloc[0]
     c2 = nrt_df['global_rate'].iloc[0]
-    c3 = nrt_df['global_drift'].iloc[0] / 2.0  
+    c3 = nrt_df['global_drift'].iloc[0] / 2.0
     c4 = 0.0
 
     std_dev_array = (
@@ -33,7 +34,7 @@ def format_for_binary_export(nrt_df: pd.DataFrame) -> pd.DataFrame:
 
     adj_data_l = nrt_df['adjusted_ground_time'].iloc[0]
     adj_data_f = nrt_df['adjusted_ground_time'].iloc[-1]
-    ref_gmt = c1
+    ref_gmt = c1 - NOMINAL_RATE
 
     # --- GLOBAL ERROR GROWTH CALCULATION ---
     # Target error thresholds: 0.1 ms (0.0001s), 1.0 ms (0.0010s), 10.0 ms (0.0100s)
