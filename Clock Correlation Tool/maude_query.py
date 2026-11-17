@@ -2,7 +2,6 @@ import pandas as pd
 import urllib.request
 import json
 from datetime import datetime, timedelta
-from tqdm import tqdm
 
 
 def maude_data_request(ts, tp, msid):
@@ -19,7 +18,7 @@ def get_data(ts, tp, msids):
     """Synchronous fetching with urllib, returning a single time-unified DataFrame"""
     dfs = []
 
-    for msid in tqdm(msids):
+    for msid in msids:
         raw_times_accum = []
         raw_values_accum = []
         shift_time = timedelta(0)
